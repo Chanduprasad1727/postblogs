@@ -1,0 +1,36 @@
+# Environment secrets
+.env
+.env.*
+*.env
+*.pem
+*.key
+*.cert
+service-account*.json
+credentials.json
+
+# Allow .env.example
+!.env.example
+
+# Python cache & virtual environment
+__pycache__/
+*.py[cod]
+venv/
+.venv/
+env/
+*.egg-info/
+.pytest_cache/
+
+# SQLite databases
+*.db
+*.sqlite
+*.sqlite3
+
+# Uploads
+uploads/*
+!.gitkeep
+!uploads/.gitkeep
+
+# System & IDE
+.DS_Store
+.idea/
+.vscode/
