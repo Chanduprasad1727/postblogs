@@ -183,12 +183,24 @@ export const AuthProvider = ({ children }) => {
 
   // Helper: Backend FastAPI login
   const loginWithBackend = async (email, password) => {
-    const res = await fetch('/api/auth/login', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email, password })
-    });
-    const data = await res.json();
+    let res;
+    try {
+      res = await fetch('/api/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password })
+      });
+    } catch (err) {
+      throw new Error('Cannot connect to backend server. Please verify the server is running.');
+    }
+
+    let data;
+    try {
+      data = await res.json();
+    } catch {
+      throw new Error(`Server returned ${res.status}: Invalid response.`);
+    }
+
     if (!res.ok) {
       throw new Error(data.detail || 'Invalid email or password.');
     }
@@ -204,12 +216,24 @@ export const AuthProvider = ({ children }) => {
     const targetRole = cleanEmail === 'pavan@kalagawealth.com' ? 'admin' : 'client';
 
     // 1. Register through backend which provisions in Supabase Auth & profiles table
-    const res = await fetch('/api/auth/register', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email: cleanEmail, password, full_name, role: targetRole })
-    });
-    const data = await res.json();
+    let res;
+    try {
+      res = await fetch('/api/auth/register', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: cleanEmail, password, full_name, role: targetRole })
+      });
+    } catch (err) {
+      throw new Error('Cannot connect to backend server. Please verify the server is running.');
+    }
+
+    let data;
+    try {
+      data = await res.json();
+    } catch {
+      throw new Error(`Server returned ${res.status}: Invalid response.`);
+    }
+
     if (!res.ok) {
       throw new Error(data.detail || 'Registration failed.');
     }
