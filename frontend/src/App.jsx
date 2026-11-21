@@ -20,7 +20,12 @@ import {
   Layers, 
   PlusCircle, 
   AlertCircle,
-  CheckCircle2
+  CheckCircle2,
+  Lock,
+  CreditCard,
+  Clock,
+  ArrowRight,
+  RefreshCw
 } from 'lucide-react';
 
 export function App() {
@@ -267,8 +272,100 @@ export function App() {
 
               {/* Right Column: Single Continuous Vertical Scroll Feed */}
               <main className="flex-1 w-full space-y-6">
-                
-                {/* Search & Filter Toolbar */}
+
+                {/* Strict Content Gating for Unpaid, Pending, or Revoked Clients */}
+                {!isAdmin && user?.membership_status !== 'active' ? (
+                  <div className="bg-white rounded-3xl border border-slate-200/90 p-8 sm:p-12 text-center shadow-md space-y-6">
+                    {user?.membership_status === 'pending' ? (
+                      <div className="max-w-md mx-auto space-y-4">
+                        <div className="w-16 h-16 rounded-3xl bg-amber-100 text-amber-700 flex items-center justify-center mx-auto shadow-inner">
+                          <Clock className="w-8 h-8 animate-pulse" />
+                        </div>
+                        <h3 className="text-xl font-extrabold text-slate-900 tracking-tight">
+                          Payment Verification in Progress
+                        </h3>
+                        <p className="text-xs text-slate-600 leading-relaxed">
+                          We received your ₹149 payment verification with UPI Reference / UTR Number:{' '}
+                          <strong className="font-mono text-slate-900 bg-amber-50 px-2.5 py-1 rounded-lg border border-amber-200 block mt-1.5 text-sm">
+                            {user.last_payment_utr || 'Submitted'}
+                          </strong>
+                        </p>
+                        <div className="p-3.5 bg-amber-50/80 rounded-2xl border border-amber-200 text-xs text-amber-900 font-medium leading-relaxed">
+                          Administrator <strong>Kalaga Pavan Kishore</strong> is verifying your ₹149 transfer to <strong>9704875593@slc</strong>. Once approved, the full single scroll research feed will automatically unlock.
+                        </div>
+                        <div className="flex items-center justify-center space-x-3 pt-2">
+                          <button
+                            type="button"
+                            onClick={fetchData}
+                            className="px-4 py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold transition flex items-center space-x-1.5"
+                          >
+                            <RefreshCw className="w-3.5 h-3.5" />
+                            <span>Check Status</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setIsMembershipModalOpen(true)}
+                            className="px-4 py-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold transition"
+                          >
+                            Update UTR
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="max-w-md mx-auto space-y-4">
+                        <div className="w-16 h-16 rounded-3xl bg-slate-950 text-amber-400 flex items-center justify-center mx-auto shadow-md">
+                          <Lock className="w-8 h-8" />
+                        </div>
+                        <h3 className="text-xl font-extrabold text-slate-900 tracking-tight">
+                          Private Research Content Locked
+                        </h3>
+                        <p className="text-xs text-slate-600 leading-relaxed">
+                          Access to Kalaga Wealth's single scroll research stream, institutional video analysis, and community investor polls requires an active monthly membership.
+                        </p>
+                        <div className="p-4 bg-slate-50 rounded-2xl border border-slate-200 text-left space-y-1.5 text-xs text-slate-700">
+                          <div className="flex items-center justify-between font-bold text-slate-900">
+                            <span>Plan: Monthly Membership</span>
+                            <span className="text-emerald-700 font-extrabold">₹149 / Month</span>
+                          </div>
+                          <p className="text-[11px] text-slate-500">Official UPI ID: 9704875593@slc</p>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => setIsMembershipModalOpen(true)}
+                          className="w-full py-3.5 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 text-slate-950 font-black text-xs shadow-md transition active:scale-95 flex items-center justify-center space-x-2"
+                        >
+                          <CreditCard className="w-4 h-4" />
+                          <span>Scan UPI QR & Pay ₹149 to Unlock</span>
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <>
+                    {/* Active Membership Renewal Reminder Banner for Paid Clients */}
+                    {!isAdmin && user?.membership_status === 'active' && (
+                      <div className="bg-gradient-to-r from-slate-950 via-slate-900 to-slate-950 text-white px-5 py-3 rounded-2xl border border-emerald-500/30 shadow-xs flex flex-col sm:flex-row items-center justify-between gap-2.5">
+                        <div className="flex items-center space-x-2.5 text-xs">
+                          <div className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse" />
+                          <span className="text-slate-200">
+                            Monthly Plan Active:{' '}
+                            <strong className="text-amber-300 font-bold">
+                              {user.days_remaining != null ? `${user.days_remaining} ${user.days_remaining === 1 ? 'day' : 'days'} left to renew` : 'Active'}
+                            </strong>
+                          </span>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => setIsMembershipModalOpen(true)}
+                          className="text-xs font-bold text-amber-400 hover:text-amber-300 hover:underline flex items-center space-x-1"
+                        >
+                          <span>Renew / View Plan (₹149)</span>
+                          <ArrowRight className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    )}
+
+                    {/* Search & Filter Toolbar */}
                 <div className="bg-white p-4 rounded-3xl border border-slate-200/80 shadow-sm flex flex-col sm:flex-row items-center justify-between gap-4">
                   <div className="relative w-full sm:w-80">
                     <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-3" />
@@ -358,6 +455,9 @@ export function App() {
                   </div>
                 )}
 
+                  </>
+                )}
+
               </main>
 
             </div>
@@ -399,6 +499,7 @@ export function App() {
       <ProfileModal
         isOpen={isProfileModalOpen}
         onClose={() => setIsProfileModalOpen(false)}
+        onOpenMembership={() => setIsMembershipModalOpen(true)}
       />
 
       {/* Admin Client Management Modal */}

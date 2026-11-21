@@ -132,15 +132,17 @@ export const Navbar = ({
                   ? 'bg-amber-50 text-amber-900 border border-amber-300 hover:bg-amber-100 animate-pulse'
                   : 'bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 text-slate-950 font-black shadow-amber-500/20'
               }`}
-              title="View / Renew ₹149 Monthly Membership"
+              title="Click to view ₹149 membership & renewal details"
             >
               <CreditCard className="w-3.5 h-3.5" />
               <span>
                 {user.membership_status === 'active'
-                  ? 'Active Plan'
+                  ? user.days_remaining != null
+                    ? `${user.days_remaining}d left to renew`
+                    : 'Active Member'
                   : user.membership_status === 'pending'
-                  ? 'Pending ₹149'
-                  : 'Pay ₹149 / mo'}
+                  ? 'Pending Approval'
+                  : 'Pay ₹149 to Unlock'}
               </span>
             </button>
           )}

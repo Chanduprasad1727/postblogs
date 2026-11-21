@@ -11,6 +11,7 @@ class UserBase(BaseModel):
     membership_status: str = "unpaid"  # "active", "pending", "unpaid", "expired"
     membership_expires_at: Optional[Any] = None
     last_payment_utr: Optional[str] = None
+    days_remaining: Optional[int] = None
 
 class UserCreate(UserBase):
     password: str

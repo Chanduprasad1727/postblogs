@@ -11,7 +11,10 @@ import {
   Mail, 
   Sparkles,
   LogOut,
-  RefreshCw
+  RefreshCw,
+  CreditCard,
+  Clock,
+  AlertCircle
 } from 'lucide-react';
 
 const PRESET_AVATARS = [
@@ -23,7 +26,7 @@ const PRESET_AVATARS = [
   'https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=200'
 ];
 
-export const ProfileModal = ({ isOpen, onClose }) => {
+export const ProfileModal = ({ isOpen, onClose, onOpenMembership }) => {
   const { user, isAdmin, uploadAvatar, updateProfile, logout, isSupabase } = useAuth();
   const fileInputRef = useRef(null);
 
@@ -259,6 +262,97 @@ export const ProfileModal = ({ isOpen, onClose }) => {
               </span>
             </div>
           </div>
+
+          {/* Membership & Renewal Card for Clients */}
+          {!isAdmin && (
+            <div className="p-4 rounded-2xl bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 text-white space-y-3 shadow-md">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center space-x-2">
+                  <CreditCard className="w-4 h-4 text-amber-400" />
+                  <span className="text-xs font-black tracking-tight text-white">Monthly Membership (₹149/mo)</span>
+                </div>
+                <span className={`text-[10px] font-extrabold px-2.5 py-0.5 rounded-full uppercase tracking-wider ${
+                  user.membership_status === 'active'
+                    ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40'
+                    : user.membership_status === 'pending'
+                    ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40 animate-pulse'
+                    : 'bg-red-500/20 text-red-300 border border-red-500/40'
+                }`}>
+                  {user.membership_status === 'active' ? 'Active' : user.membership_status === 'pending' ? 'Pending Approval' : 'Unpaid / Expired'}
+                </span>
+              </div>
+
+              {user.membership_status === 'active' ? (
+                <div className="space-y-2 text-xs">
+                  <div className="flex items-center justify-between text-slate-300">
+                    <span>Renewal Countdown:</span>
+                    <span className="font-extrabold text-amber-300">
+                      {user.days_remaining != null ? `${user.days_remaining} days left to renew` : 'Active'}
+                    </span>
+                  </div>
+                  {user.membership_expires_at && (
+                    <div className="flex items-center justify-between text-[11px] text-slate-400">
+                      <span>Valid until:</span>
+                      <span className="font-mono text-slate-200">
+                        {new Date(user.membership_expires_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                      </span>
+                    </div>
+                  )}
+                  {onOpenMembership && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        onClose();
+                        onOpenMembership();
+                      }}
+                      className="w-full mt-2 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-xs transition active:scale-95"
+                    >
+                      Renew Early / View UPI QR
+                    </button>
+                  )}
+                </div>
+              ) : user.membership_status === 'pending' ? (
+                <div className="space-y-2 text-xs text-slate-300">
+                  <p className="text-[11px] text-amber-200">
+                    Submitted UTR: <strong className="font-mono text-white">{user.last_payment_utr || 'Pending'}</strong>
+                  </p>
+                  <p className="text-[11px] text-slate-400">
+                    Administrator Kalaga Pavan Kishore is verifying your ₹149 payment.
+                  </p>
+                  {onOpenMembership && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        onClose();
+                        onOpenMembership();
+                      }}
+                      className="w-full mt-1 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-white font-bold text-xs transition"
+                    >
+                      View Payment Details
+                    </button>
+                  )}
+                </div>
+              ) : (
+                <div className="space-y-2 text-xs">
+                  <p className="text-[11px] text-slate-400">
+                    Payment required to access the single scroll research feed.
+                  </p>
+                  {onOpenMembership && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        onClose();
+                        onOpenMembership();
+                      }}
+                      className="w-full mt-1 py-2 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 text-slate-950 font-black text-xs shadow-md transition active:scale-95"
+                    >
+                      Pay ₹149 via UPI (9704875593@slc)
+                    </button>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
 
         </div>
 

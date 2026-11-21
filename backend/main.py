@@ -4,7 +4,7 @@ import uuid
 import shutil
 import base64
 from typing import List, Optional
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from fastapi import FastAPI, Depends, HTTPException, status, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -20,6 +20,8 @@ from auth import (
     get_optional_current_user,
     require_admin,
     require_client_or_admin,
+    parse_iso_datetime,
+    format_iso_datetime,
 )
 
 app = FastAPI(
@@ -258,20 +260,32 @@ def login(login_data: schemas.LoginRequest):
         profile["membership_status"] = "active"
         profile["membership_expires_at"] = None
         profile["last_payment_utr"] = None
+        profile["days_remaining"] = None
     else:
         profile["role"] = "client"
-        profile["membership_status"] = profile.get("membership_status") or meta.get("membership_status") or "unpaid"
-        profile["membership_expires_at"] = profile.get("membership_expires_at") or meta.get("membership_expires_at")
-        profile["last_payment_utr"] = profile.get("last_payment_utr") or meta.get("last_payment_utr")
+        if "membership_status" in meta:
+            profile["membership_status"] = meta.get("membership_status") or "unpaid"
+            profile["membership_expires_at"] = meta.get("membership_expires_at")
+            profile["last_payment_utr"] = meta.get("last_payment_utr")
+        else:
+            profile["membership_status"] = profile.get("membership_status") or "unpaid"
+            profile["membership_expires_at"] = profile.get("membership_expires_at")
+            profile["last_payment_utr"] = profile.get("last_payment_utr")
 
-        # Expiry check
-        if profile["membership_status"] == "active" and profile.get("membership_expires_at"):
-            try:
-                exp_dt = datetime.fromisoformat(str(profile["membership_expires_at"]).replace("Z", "+00:00"))
-                if datetime.utcnow().timestamp() > exp_dt.timestamp():
-                    profile["membership_status"] = "expired"
-            except Exception:
-                pass
+        # Expiry check & calculate days remaining
+        days_rem = None
+        if profile.get("membership_expires_at"):
+            exp_dt = parse_iso_datetime(profile["membership_expires_at"])
+            if exp_dt:
+                now_utc = datetime.now(timezone.utc)
+                diff = exp_dt.timestamp() - now_utc.timestamp()
+                if diff > 0:
+                    days_rem = max(1, int(diff // 86400))
+                else:
+                    days_rem = 0
+                    if profile.get("membership_status") == "active":
+                        profile["membership_status"] = "expired"
+        profile["days_remaining"] = days_rem
 
     return schemas.Token(
         access_token=access_token,
@@ -415,7 +429,7 @@ def get_admin_clients(
     except Exception as e:
         print(f"list_users note: {e}")
 
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     clients = []
     for p in profiles:
         email = (p.get("email") or "").lower()
@@ -429,25 +443,29 @@ def get_admin_clients(
         meta = auth_meta_map.get(uid, {})
 
         p_copy["votes_count"] = vote_counts.get(uid, 0)
-        p_copy["membership_status"] = p.get("membership_status") or meta.get("membership_status") or "unpaid"
-        p_copy["membership_expires_at"] = p.get("membership_expires_at") or meta.get("membership_expires_at")
-        p_copy["last_payment_utr"] = p.get("last_payment_utr") or meta.get("last_payment_utr")
-        p_copy["last_payment_date"] = p.get("last_payment_date") or meta.get("last_payment_date")
+        if "membership_status" in meta:
+            p_copy["membership_status"] = meta.get("membership_status") or "unpaid"
+            p_copy["membership_expires_at"] = meta.get("membership_expires_at")
+            p_copy["last_payment_utr"] = meta.get("last_payment_utr")
+            p_copy["last_payment_date"] = meta.get("last_payment_date")
+        else:
+            p_copy["membership_status"] = p.get("membership_status") or "unpaid"
+            p_copy["membership_expires_at"] = p.get("membership_expires_at")
+            p_copy["last_payment_utr"] = p.get("last_payment_utr")
+            p_copy["last_payment_date"] = p.get("last_payment_date")
 
         # Compute days remaining
         days_rem = None
         if p_copy["membership_expires_at"]:
-            try:
-                exp_dt = datetime.fromisoformat(str(p_copy["membership_expires_at"]).replace("Z", "+00:00"))
+            exp_dt = parse_iso_datetime(p_copy["membership_expires_at"])
+            if exp_dt:
                 diff = exp_dt.timestamp() - now.timestamp()
                 if diff > 0:
-                    days_rem = int(diff // 86400)
+                    days_rem = max(1, int(diff // 86400))
                 else:
                     days_rem = 0
                     if p_copy["membership_status"] == "active":
                         p_copy["membership_status"] = "expired"
-            except Exception:
-                pass
 
         p_copy["days_remaining"] = days_rem
         clients.append(p_copy)
@@ -573,7 +591,7 @@ def submit_membership_payment(
 
     sb = get_supabase()
     user_id = current_user["id"]
-    now_iso = datetime.utcnow().isoformat() + "Z"
+    now_iso = format_iso_datetime(datetime.now(timezone.utc))
 
     updates = {
         "membership_status": "pending",
@@ -629,7 +647,7 @@ def manage_client_membership(
 
     action = action_in.action.lower()
     days = action_in.days or 30
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
 
     # Fetch existing metadata
     current_meta = {}
@@ -640,7 +658,7 @@ def manage_client_membership(
         pass
 
     if action == "approve":
-        expires_at = (now + timedelta(days=days)).isoformat() + "Z"
+        expires_at = format_iso_datetime(now + timedelta(days=days))
         updates = {
             "membership_status": "active",
             "membership_expires_at": expires_at,
@@ -651,13 +669,10 @@ def manage_client_membership(
         existing_exp = current_meta.get("membership_expires_at")
         base_time = now
         if existing_exp:
-            try:
-                base_dt = datetime.fromisoformat(str(existing_exp).replace("Z", "+00:00"))
-                if base_dt.timestamp() > now.timestamp():
-                    base_time = base_dt
-            except Exception:
-                pass
-        expires_at = (base_time + timedelta(days=days)).isoformat() + "Z"
+            base_dt = parse_iso_datetime(existing_exp)
+            if base_dt and base_dt.timestamp() > now.timestamp():
+                base_time = base_dt
+        expires_at = format_iso_datetime(base_time + timedelta(days=days))
         updates = {
             "membership_status": "active",
             "membership_expires_at": expires_at
@@ -687,6 +702,20 @@ def manage_client_membership(
         pass
 
     target.update(updates)
+    # Compute days remaining for response
+    days_rem = None
+    if target.get("membership_expires_at"):
+        exp_dt = parse_iso_datetime(target["membership_expires_at"])
+        if exp_dt:
+            diff = exp_dt.timestamp() - now.timestamp()
+            if diff > 0:
+                days_rem = max(1, int(diff // 86400))
+            else:
+                days_rem = 0
+                if target.get("membership_status") == "active":
+                    target["membership_status"] = "expired"
+    target["days_remaining"] = days_rem
+
     # Get votes count
     votes_res = sb.table("poll_votes").select("id").eq("user_id", client_id).execute()
     target["votes_count"] = len(votes_res.data or [])
@@ -815,11 +844,21 @@ def get_post(
     if not post_res.data:
         raise HTTPException(status_code=404, detail="Post not found")
 
+    post_data = post_res.data
+    if not post_data.get("is_featured") and (not current_user or current_user.get("role") != "admin"):
+        if not current_user:
+            raise HTTPException(status_code=401, detail="Authentication required to view this post.")
+        if current_user.get("membership_status") != "active":
+            raise HTTPException(
+                status_code=status.HTTP_402_PAYMENT_REQUIRED,
+                detail="Active ₹149 monthly membership required to view full research post."
+            )
+
     poll_res = sb.table("polls").select("*, poll_options(*), poll_votes(*)").eq("post_id", post_id).execute()
     poll_obj = poll_res.data[0] if poll_res.data else None
 
     user_id = current_user["id"] if current_user else None
-    return format_post_from_supabase(post_res.data, poll_obj, user_id)
+    return format_post_from_supabase(post_data, poll_obj, user_id)
 
 
 @app.patch("/api/posts/{post_id}/toggle-featured", response_model=schemas.PostResponse)
@@ -905,6 +944,14 @@ def vote_poll(
     vote_in: schemas.VoteRequest,
     current_user: dict = Depends(get_current_user)
 ):
+    # Strict Membership Check: Unpaid, pending, or revoked clients cannot vote
+    if current_user.get("role") != "admin":
+        if current_user.get("membership_status") != "active":
+            raise HTTPException(
+                status_code=status.HTTP_402_PAYMENT_REQUIRED,
+                detail="Active ₹149 monthly membership required to vote in community investor polls. Please complete payment or wait for admin approval."
+            )
+
     sb = get_supabase()
     user_id = current_user["id"]
 

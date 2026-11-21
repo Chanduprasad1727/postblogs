@@ -19,12 +19,37 @@ export const AuthProvider = ({ children }) => {
       || sbUser.user_metadata?.avatar_url 
       || `https://api.dicebear.com/7.x/avataaars/svg?seed=${sbUser.email}`;
 
+    const meta = sbUser.user_metadata || {};
+    let membershipStatus = isSoleAdmin ? 'active' : (profile?.membership_status || meta.membership_status || 'unpaid');
+    let membershipExpiresAt = isSoleAdmin ? null : (profile?.membership_expires_at || meta.membership_expires_at || null);
+    let lastPaymentUtr = isSoleAdmin ? null : (profile?.last_payment_utr || meta.last_payment_utr || null);
+    let daysRemaining = null;
+
+    if (membershipExpiresAt) {
+      try {
+        const expDt = new Date(membershipExpiresAt);
+        const diffMs = expDt.getTime() - Date.now();
+        if (diffMs > 0) {
+          daysRemaining = Math.max(1, Math.floor(diffMs / (1000 * 60 * 60 * 24)));
+        } else {
+          daysRemaining = 0;
+          if (membershipStatus === 'active') membershipStatus = 'expired';
+        }
+      } catch (err) {
+        console.warn('Membership expiry parsing error:', err);
+      }
+    }
+
     return {
       id: sbUser.id,
       email: sbUser.email,
       full_name: fullName,
       role: role,
       avatar_url: avatarUrl,
+      membership_status: membershipStatus,
+      membership_expires_at: membershipExpiresAt,
+      last_payment_utr: lastPaymentUtr,
+      days_remaining: daysRemaining,
       provider: 'supabase'
     };
   };
@@ -71,7 +96,18 @@ export const AuthProvider = ({ children }) => {
       return null;
     }
     const profile = await fetchSupabaseProfile(session.user.id);
-    const userData = buildSupabaseUserData(session.user, profile);
+    let userData = buildSupabaseUserData(session.user, profile);
+
+    // Attempt to pull latest live backend computed status (e.g. days_remaining, latest admin approval)
+    try {
+      const backendUser = await checkLocalSession(session.access_token);
+      if (backendUser) {
+        userData = { ...userData, ...backendUser };
+      }
+    } catch {
+      // Fallback to userData built from Supabase
+    }
+
     setUser(userData);
     setToken(session.access_token);
     localStorage.setItem('token', session.access_token);

@@ -4,8 +4,8 @@ import hmac
 import hashlib
 import base64
 import secrets
-from datetime import datetime, timedelta
-from typing import Optional
+from datetime import datetime, timedelta, timezone
+from typing import Optional, Any
 from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
 from dotenv import load_dotenv
@@ -66,6 +66,26 @@ def _b64url_decode(data: str) -> bytes:
     if rem > 0:
         data += "=" * (4 - rem)
     return base64.urlsafe_b64decode(data.encode("utf-8"))
+
+def parse_iso_datetime(dt_str: Any) -> Optional[datetime]:
+    if not dt_str:
+        return None
+    try:
+        clean_str = str(dt_str).strip()
+        if clean_str.endswith("Z"):
+            clean_str = clean_str[:-1] + "+00:00"
+        elif "+" not in clean_str:
+            clean_str = clean_str + "+00:00"
+        return datetime.fromisoformat(clean_str)
+    except Exception:
+        return None
+
+
+def format_iso_datetime(dt: datetime) -> str:
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.isoformat().replace("+00:00", "Z")
+
 
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:
     to_encode = data.copy()
@@ -204,26 +224,49 @@ def get_current_user(token: str = Depends(oauth2_scheme)) -> dict:
 
     # Strictly enforce Kalaga Pavan Kishore as the sole administrator
     clean_email = profile.get("email", "").lower()
-    meta = payload.get("user_metadata", {})
+    meta = dict(payload.get("user_metadata") or {})
+
+    # Live lookup of Supabase Auth user_metadata so admin actions (approve/extend/reject) take effect immediately on existing tokens
+    try:
+        sb = get_supabase()
+        if user_id and sb:
+            au = sb.auth.admin.get_user_by_id(user_id)
+            if au and au.user and au.user.user_metadata:
+                meta.update(au.user.user_metadata)
+    except Exception as e:
+        pass
+
     if clean_email == "pavan@kalagawealth.com":
         profile["role"] = "admin"
         profile["membership_status"] = "active"
         profile["membership_expires_at"] = None
         profile["last_payment_utr"] = None
+        profile["days_remaining"] = None
     else:
         profile["role"] = "client"
-        profile["membership_status"] = profile.get("membership_status") or meta.get("membership_status") or "unpaid"
-        profile["membership_expires_at"] = profile.get("membership_expires_at") or meta.get("membership_expires_at")
-        profile["last_payment_utr"] = profile.get("last_payment_utr") or meta.get("last_payment_utr")
+        if "membership_status" in meta:
+            profile["membership_status"] = meta.get("membership_status") or "unpaid"
+            profile["membership_expires_at"] = meta.get("membership_expires_at")
+            profile["last_payment_utr"] = meta.get("last_payment_utr")
+        else:
+            profile["membership_status"] = profile.get("membership_status") or "unpaid"
+            profile["membership_expires_at"] = profile.get("membership_expires_at")
+            profile["last_payment_utr"] = profile.get("last_payment_utr")
 
-        # Check for expiration
-        if profile["membership_status"] == "active" and profile.get("membership_expires_at"):
-            try:
-                exp_dt = datetime.fromisoformat(str(profile["membership_expires_at"]).replace("Z", "+00:00"))
-                if datetime.utcnow().timestamp() > exp_dt.timestamp():
-                    profile["membership_status"] = "expired"
-            except Exception:
-                pass
+        # Check for expiration & calculate days remaining
+        days_rem = None
+        if profile.get("membership_expires_at"):
+            exp_dt = parse_iso_datetime(profile["membership_expires_at"])
+            if exp_dt:
+                now_utc = datetime.now(timezone.utc)
+                diff = exp_dt.timestamp() - now_utc.timestamp()
+                if diff > 0:
+                    days_rem = max(1, int(diff // 86400))
+                else:
+                    days_rem = 0
+                    if profile.get("membership_status") == "active":
+                        profile["membership_status"] = "expired"
+        profile["days_remaining"] = days_rem
 
     return profile
 
