@@ -13,7 +13,8 @@ import {
   Loader2,
   ChevronLeft,
   TrendingUp,
-  ShieldCheck
+  ShieldCheck,
+  CreditCard
 } from 'lucide-react';
 
 export const LoginPage = ({ onNavigateToFeed, onNavigateToHome }) => {
@@ -93,6 +94,16 @@ export const LoginPage = ({ onNavigateToFeed, onNavigateToHome }) => {
 
             {/* Platform Highlights */}
             <div className="space-y-3.5 mb-8">
+              <div className="p-3.5 rounded-2xl bg-amber-500/10 border border-amber-500/30 flex items-center space-x-3">
+                <div className="w-8 h-8 rounded-xl bg-amber-500/20 text-amber-300 flex items-center justify-center shrink-0">
+                  <CreditCard className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 className="text-xs font-bold text-amber-200">Investor Membership: ₹149 / Month</h3>
+                  <p className="text-[11px] text-slate-300">Scan & pay via UPI (9704875593@slc) to unlock the single scroll feed.</p>
+                </div>
+              </div>
+
               <div className="p-3.5 rounded-2xl bg-slate-900/80 border border-slate-800 flex items-center space-x-3">
                 <div className="w-8 h-8 rounded-xl bg-emerald-500/10 text-emerald-400 flex items-center justify-center shrink-0">
                   <TrendingUp className="w-4 h-4" />

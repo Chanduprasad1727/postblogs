@@ -204,10 +204,26 @@ def get_current_user(token: str = Depends(oauth2_scheme)) -> dict:
 
     # Strictly enforce Kalaga Pavan Kishore as the sole administrator
     clean_email = profile.get("email", "").lower()
+    meta = payload.get("user_metadata", {})
     if clean_email == "pavan@kalagawealth.com":
         profile["role"] = "admin"
+        profile["membership_status"] = "active"
+        profile["membership_expires_at"] = None
+        profile["last_payment_utr"] = None
     else:
         profile["role"] = "client"
+        profile["membership_status"] = profile.get("membership_status") or meta.get("membership_status") or "unpaid"
+        profile["membership_expires_at"] = profile.get("membership_expires_at") or meta.get("membership_expires_at")
+        profile["last_payment_utr"] = profile.get("last_payment_utr") or meta.get("last_payment_utr")
+
+        # Check for expiration
+        if profile["membership_status"] == "active" and profile.get("membership_expires_at"):
+            try:
+                exp_dt = datetime.fromisoformat(str(profile["membership_expires_at"]).replace("Z", "+00:00"))
+                if datetime.utcnow().timestamp() > exp_dt.timestamp():
+                    profile["membership_status"] = "expired"
+            except Exception:
+                pass
 
     return profile
 

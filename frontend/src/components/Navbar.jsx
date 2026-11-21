@@ -8,7 +8,8 @@ import {
   Layers,
   Lock,
   Camera,
-  Users
+  Users,
+  CreditCard
 } from 'lucide-react';
 
 export const Navbar = ({ 
@@ -18,7 +19,9 @@ export const Navbar = ({
   onNavigateToLogin,
   onOpenCreatePost,
   onOpenManageClients,
-  onOpenProfile
+  onOpenMembership,
+  onOpenProfile,
+  pendingClientsCount = 0
 }) => {
   const { user, isAdmin, logout } = useAuth();
 
@@ -96,11 +99,16 @@ export const Navbar = ({
             <>
               <button
                 onClick={onOpenManageClients}
-                className="flex items-center space-x-1.5 px-3 py-2 rounded-xl bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-300/80 font-bold text-xs shadow-xs transition active:scale-95"
-                title="Manage and View Clients"
+                className="flex items-center space-x-1.5 px-3 py-2 rounded-xl bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-300/80 font-bold text-xs shadow-xs transition active:scale-95 relative"
+                title="Manage Clients & ₹149 Memberships"
               >
                 <Users className="w-3.5 h-3.5 text-amber-600" />
                 <span className="hidden sm:inline">Clients</span>
+                {pendingClientsCount > 0 && (
+                  <span className="ml-1 px-1.5 py-0.5 bg-amber-600 text-white rounded-full text-[10px] font-black animate-pulse">
+                    {pendingClientsCount}
+                  </span>
+                )}
               </button>
 
               <button
@@ -111,6 +119,30 @@ export const Navbar = ({
                 <span>Create Post</span>
               </button>
             </>
+          )}
+
+          {/* For Client Members: Membership Status Badge / Pay ₹149 */}
+          {user && !isAdmin && (
+            <button
+              onClick={onOpenMembership}
+              className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition active:scale-95 shadow-xs ${
+                user.membership_status === 'active'
+                  ? 'bg-emerald-50 text-emerald-800 border border-emerald-200 hover:bg-emerald-100'
+                  : user.membership_status === 'pending'
+                  ? 'bg-amber-50 text-amber-900 border border-amber-300 hover:bg-amber-100 animate-pulse'
+                  : 'bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 text-slate-950 font-black shadow-amber-500/20'
+              }`}
+              title="View / Renew ₹149 Monthly Membership"
+            >
+              <CreditCard className="w-3.5 h-3.5" />
+              <span>
+                {user.membership_status === 'active'
+                  ? 'Active Plan'
+                  : user.membership_status === 'pending'
+                  ? 'Pending ₹149'
+                  : 'Pay ₹149 / mo'}
+              </span>
+            </button>
           )}
 
           {/* User profile / Change DP */}

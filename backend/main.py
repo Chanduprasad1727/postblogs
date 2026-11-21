@@ -4,7 +4,7 @@ import uuid
 import shutil
 import base64
 from typing import List, Optional
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from fastapi import FastAPI, Depends, HTTPException, status, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -173,7 +173,11 @@ def register(user_in: schemas.UserCreate):
         user_meta = {
             "full_name": user_in.full_name,
             "role": "client",
-            "avatar_url": user_in.avatar_url or f"https://api.dicebear.com/7.x/avataaars/svg?seed={clean_email}"
+            "avatar_url": user_in.avatar_url or f"https://api.dicebear.com/7.x/avataaars/svg?seed={clean_email}",
+            "membership_status": "unpaid",
+            "membership_plan": "monthly_149",
+            "last_payment_utr": None,
+            "membership_expires_at": None
         }
         sb_user = sb.auth.admin.create_user({
             "email": clean_email,
@@ -192,10 +196,21 @@ def register(user_in: schemas.UserCreate):
         "email": clean_email,
         "full_name": user_in.full_name,
         "role": "client",
-        "avatar_url": user_meta["avatar_url"]
+        "avatar_url": user_meta["avatar_url"],
+        "membership_status": "unpaid",
+        "membership_expires_at": None,
+        "last_payment_utr": None
     }
+    profile["membership_status"] = "unpaid"
+    profile["membership_expires_at"] = None
+    profile["last_payment_utr"] = None
 
-    token = create_access_token({"sub": user_id, "email": clean_email, "role": "client"})
+    token = create_access_token({
+        "sub": user_id,
+        "email": clean_email,
+        "role": "client",
+        "membership_status": "unpaid"
+    })
     return schemas.Token(
         access_token=token,
         token_type="bearer",
@@ -235,11 +250,28 @@ def login(login_data: schemas.LoginRequest):
             "avatar_url": f"https://api.dicebear.com/7.x/avataaars/svg?seed={clean_email}"
         }
 
+    meta = (auth_res.user.user_metadata or {}) if hasattr(auth_res, "user") else {}
+
     # Sole Admin Invariant
     if clean_email == "pavan@kalagawealth.com":
         profile["role"] = "admin"
+        profile["membership_status"] = "active"
+        profile["membership_expires_at"] = None
+        profile["last_payment_utr"] = None
     else:
         profile["role"] = "client"
+        profile["membership_status"] = profile.get("membership_status") or meta.get("membership_status") or "unpaid"
+        profile["membership_expires_at"] = profile.get("membership_expires_at") or meta.get("membership_expires_at")
+        profile["last_payment_utr"] = profile.get("last_payment_utr") or meta.get("last_payment_utr")
+
+        # Expiry check
+        if profile["membership_status"] == "active" and profile.get("membership_expires_at"):
+            try:
+                exp_dt = datetime.fromisoformat(str(profile["membership_expires_at"]).replace("Z", "+00:00"))
+                if datetime.utcnow().timestamp() > exp_dt.timestamp():
+                    profile["membership_status"] = "expired"
+            except Exception:
+                pass
 
     return schemas.Token(
         access_token=access_token,
@@ -358,7 +390,7 @@ def get_admin_clients(
     current_user: dict = Depends(require_admin)
 ):
     """
-    Returns all registered client accounts with their participation stats.
+    Returns all registered client accounts with their participation stats and ₹149 monthly membership status.
     Strictly restricted to Sole Administrator (Kalaga Pavan Kishore).
     """
     sb = get_supabase()
@@ -374,6 +406,16 @@ def get_admin_clients(
         uid = str(v.get("user_id"))
         vote_counts[uid] = vote_counts.get(uid, 0) + 1
 
+    # Fetch auth users for rich metadata
+    auth_meta_map = {}
+    try:
+        auth_users = sb.auth.admin.list_users()
+        for au in auth_users:
+            auth_meta_map[str(au.id)] = au.user_metadata or {}
+    except Exception as e:
+        print(f"list_users note: {e}")
+
+    now = datetime.utcnow()
     clients = []
     for p in profiles:
         email = (p.get("email") or "").lower()
@@ -383,7 +425,31 @@ def get_admin_clients(
             continue
 
         p_copy = dict(p)
-        p_copy["votes_count"] = vote_counts.get(str(p["id"]), 0)
+        uid = str(p.get("id"))
+        meta = auth_meta_map.get(uid, {})
+
+        p_copy["votes_count"] = vote_counts.get(uid, 0)
+        p_copy["membership_status"] = p.get("membership_status") or meta.get("membership_status") or "unpaid"
+        p_copy["membership_expires_at"] = p.get("membership_expires_at") or meta.get("membership_expires_at")
+        p_copy["last_payment_utr"] = p.get("last_payment_utr") or meta.get("last_payment_utr")
+        p_copy["last_payment_date"] = p.get("last_payment_date") or meta.get("last_payment_date")
+
+        # Compute days remaining
+        days_rem = None
+        if p_copy["membership_expires_at"]:
+            try:
+                exp_dt = datetime.fromisoformat(str(p_copy["membership_expires_at"]).replace("Z", "+00:00"))
+                diff = exp_dt.timestamp() - now.timestamp()
+                if diff > 0:
+                    days_rem = int(diff // 86400)
+                else:
+                    days_rem = 0
+                    if p_copy["membership_status"] == "active":
+                        p_copy["membership_status"] = "expired"
+            except Exception:
+                pass
+
+        p_copy["days_remaining"] = days_rem
         clients.append(p_copy)
 
     return clients
@@ -487,6 +553,151 @@ def delete_admin_client(
     }
 
 
+# --- MEMBERSHIP & ₹149 UPI PAYMENT ENDPOINTS ---
+
+@app.post("/api/membership/submit-payment")
+def submit_membership_payment(
+    payment_in: schemas.MembershipPaymentSubmit,
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Client submits UPI reference / UTR number after paying ₹149 to 9704875593@slc.
+    Sets membership_status to 'pending' for Admin verification.
+    """
+    utr = payment_in.utr_number.strip()
+    if not utr or len(utr) < 4:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Please provide a valid UPI Reference / UTR Number."
+        )
+
+    sb = get_supabase()
+    user_id = current_user["id"]
+    now_iso = datetime.utcnow().isoformat() + "Z"
+
+    updates = {
+        "membership_status": "pending",
+        "last_payment_utr": utr,
+        "last_payment_date": now_iso,
+        "membership_plan": "monthly_149"
+    }
+
+    # 1. Update Supabase Auth user metadata
+    try:
+        user_obj = sb.auth.admin.get_user_by_id(user_id)
+        current_meta = user_obj.user.user_metadata or {}
+        current_meta.update(updates)
+        sb.auth.admin.update_user_by_id(user_id, {"user_metadata": current_meta})
+    except Exception as e:
+        print(f"Error updating auth user metadata: {e}")
+
+    # 2. Update profiles table if columns exist
+    try:
+        sb.table("profiles").update(updates).eq("id", user_id).execute()
+    except Exception:
+        pass
+
+    current_user.update(updates)
+    return {
+        "status": "success",
+        "message": f"Payment submitted with UTR: {utr}. Admin Kalaga Pavan Kishore will verify and activate your membership.",
+        "user": schemas.UserResponse.from_user(current_user)
+    }
+
+
+@app.post("/api/admin/clients/{client_id}/membership")
+def manage_client_membership(
+    client_id: str,
+    action_in: schemas.MembershipAdminAction,
+    current_user: dict = Depends(require_admin)
+):
+    """
+    Sole Administrator activates (approve), extends, or resets a client's ₹149 monthly membership.
+    """
+    sb = get_supabase()
+    try:
+        target_res = sb.table("profiles").select("*").eq("id", client_id).execute()
+    except Exception:
+        raise HTTPException(status_code=404, detail="Client not found")
+
+    if not target_res.data:
+        raise HTTPException(status_code=404, detail="Client not found")
+
+    target = target_res.data[0]
+    if target.get("email", "").lower() == "pavan@kalagawealth.com" or target.get("role") == "admin":
+        raise HTTPException(status_code=403, detail="Sole Administrator has permanent lifetime membership.")
+
+    action = action_in.action.lower()
+    days = action_in.days or 30
+    now = datetime.utcnow()
+
+    # Fetch existing metadata
+    current_meta = {}
+    try:
+        au = sb.auth.admin.get_user_by_id(client_id)
+        current_meta = au.user.user_metadata or {}
+    except Exception:
+        pass
+
+    if action == "approve":
+        expires_at = (now + timedelta(days=days)).isoformat() + "Z"
+        updates = {
+            "membership_status": "active",
+            "membership_expires_at": expires_at,
+            "membership_plan": "monthly_149"
+        }
+        msg = f"Membership activated for {days} days."
+    elif action == "extend":
+        existing_exp = current_meta.get("membership_expires_at")
+        base_time = now
+        if existing_exp:
+            try:
+                base_dt = datetime.fromisoformat(str(existing_exp).replace("Z", "+00:00"))
+                if base_dt.timestamp() > now.timestamp():
+                    base_time = base_dt
+            except Exception:
+                pass
+        expires_at = (base_time + timedelta(days=days)).isoformat() + "Z"
+        updates = {
+            "membership_status": "active",
+            "membership_expires_at": expires_at
+        }
+        msg = f"Membership extended by {days} days."
+    elif action in ["reject", "reset"]:
+        updates = {
+            "membership_status": "unpaid",
+            "last_payment_utr": None,
+            "membership_expires_at": None
+        }
+        msg = "Membership reset to unpaid."
+    else:
+        raise HTTPException(status_code=400, detail=f"Unknown action: {action}")
+
+    # Persist in auth user metadata
+    current_meta.update(updates)
+    try:
+        sb.auth.admin.update_user_by_id(client_id, {"user_metadata": current_meta})
+    except Exception as e:
+        print(f"Error updating auth user metadata: {e}")
+
+    # Persist in profiles table if possible
+    try:
+        sb.table("profiles").update(updates).eq("id", client_id).execute()
+    except Exception:
+        pass
+
+    target.update(updates)
+    # Get votes count
+    votes_res = sb.table("poll_votes").select("id").eq("user_id", client_id).execute()
+    target["votes_count"] = len(votes_res.data or [])
+
+    return {
+        "status": "success",
+        "message": msg,
+        "client": target
+    }
+
+
 # --- POSTS / BLOGS ENDPOINTS (POWERED BY SUPABASE) ---
 
 @app.get("/api/posts", response_model=List[schemas.PostResponse])
@@ -525,6 +736,15 @@ def get_posts(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Authentication required: Only logged-in members can access the single scroll feed."
         )
+
+    # ₹149 monthly membership check for client members
+    if current_user.get("role") != "admin":
+        m_status = current_user.get("membership_status", "unpaid")
+        if m_status != "active":
+            raise HTTPException(
+                status_code=status.HTTP_402_PAYMENT_REQUIRED,
+                detail="Active ₹149 monthly membership required to access the single scroll feed. Please scan the UPI QR code and submit your UTR."
+            )
 
     posts_res = sb.table("posts").select("*, author:profiles(*)").order("created_at", desc=True).execute()
     polls_res = sb.table("polls").select("*, poll_options(*), poll_votes(*)").execute()

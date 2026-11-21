@@ -8,6 +8,9 @@ class UserBase(BaseModel):
     full_name: str
     role: str = "client"  # "admin" or "client"
     avatar_url: Optional[str] = None
+    membership_status: str = "unpaid"  # "active", "pending", "unpaid", "expired"
+    membership_expires_at: Optional[Any] = None
+    last_payment_utr: Optional[str] = None
 
 class UserCreate(UserBase):
     password: str
@@ -122,6 +125,11 @@ class ClientResponse(BaseModel):
     avatar_url: Optional[str] = None
     created_at: Optional[Any] = None
     votes_count: int = 0
+    membership_status: str = "unpaid"  # "active", "pending", "unpaid", "expired"
+    membership_expires_at: Optional[Any] = None
+    last_payment_utr: Optional[str] = None
+    last_payment_date: Optional[Any] = None
+    days_remaining: Optional[int] = None
 
     class Config:
         from_attributes = True
@@ -129,3 +137,13 @@ class ClientResponse(BaseModel):
 class ClientUpdateRequest(BaseModel):
     full_name: Optional[str] = None
     avatar_url: Optional[str] = None
+
+# --- Membership & UPI Payment Schemas ---
+class MembershipPaymentSubmit(BaseModel):
+    utr_number: str
+    amount: int = 149
+    upi_id: str = "9704875593@slc"
+
+class MembershipAdminAction(BaseModel):
+    action: str  # "approve", "extend", "reject", "reset"
+    days: int = 30

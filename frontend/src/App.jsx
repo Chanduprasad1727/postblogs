@@ -10,6 +10,7 @@ import { CreatePollModal } from './components/CreatePollModal';
 import { LoginPage } from './components/LoginPage';
 import { ProfileModal } from './components/ProfileModal';
 import { ManageClientsModal } from './components/ManageClientsModal';
+import { MembershipModal } from './components/MembershipModal';
 import { Footer } from './components/Footer';
 import { 
   Sparkles, 
@@ -38,6 +39,8 @@ export function App() {
   const [isCreatePollModalOpen, setIsCreatePollModalOpen] = useState(false);
   const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
   const [isManageClientsModalOpen, setIsManageClientsModalOpen] = useState(false);
+  const [isMembershipModalOpen, setIsMembershipModalOpen] = useState(false);
+  const [pendingClientsCount, setPendingClientsCount] = useState(0);
   const [activePollModal, setActivePollModal] = useState(null);
   const [notification, setNotification] = useState('');
 
@@ -55,6 +58,11 @@ export function App() {
       if (postsRes.ok) {
         const postsData = await postsRes.json();
         setPosts(postsData);
+      } else if (postsRes.status === 402) {
+        setPosts([]);
+        if (currentView === 'feed') {
+          setIsMembershipModalOpen(true);
+        }
       }
 
       if (pollsRes.ok) {
@@ -68,22 +76,47 @@ export function App() {
     }
   };
 
+  // Check pending client registrations for Admin
+  const checkPendingClients = async () => {
+    if (!token || !isAdmin) return;
+    try {
+      const res = await fetch('/api/admin/clients', {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      if (res.ok) {
+        const data = await res.json();
+        const pending = data.filter((c) => (c.membership_status || 'unpaid') === 'pending').length;
+        setPendingClientsCount(pending);
+      }
+    } catch {}
+  };
+
   useEffect(() => {
     fetchData();
-  }, [token]);
-
-  // Protect feed view: only logged-in users can access the feed
-  useEffect(() => {
-    if (currentView === 'feed' && !user) {
-      setCurrentView('home');
+    if (isAdmin && token) {
+      checkPendingClients();
     }
-  }, [user, currentView]);
+  }, [token, isAdmin]);
+
+  // Protect feed view: only logged-in users with active membership can access the feed
+  useEffect(() => {
+    if (currentView === 'feed') {
+      if (!user) {
+        setCurrentView('home');
+      } else if (!isAdmin && user.membership_status !== 'active') {
+        setIsMembershipModalOpen(true);
+      }
+    }
+  }, [user, currentView, isAdmin]);
 
   // Protected navigation handler to feed
   const handleNavigateToFeed = () => {
     if (!user) {
       showToast('Members Only: Please sign in to access the single scroll research feed.');
       setCurrentView('login');
+    } else if (!isAdmin && user.membership_status !== 'active') {
+      setIsMembershipModalOpen(true);
+      showToast('₹149 Monthly Membership required to view the single scroll feed.');
     } else {
       setCurrentView('feed');
     }
@@ -197,7 +230,9 @@ export function App() {
         onNavigateToLogin={() => setCurrentView('login')}
         onOpenCreatePost={() => setIsCreatePostModalOpen(true)}
         onOpenManageClients={() => setIsManageClientsModalOpen(true)}
+        onOpenMembership={() => setIsMembershipModalOpen(true)}
         onOpenProfile={() => setIsProfileModalOpen(true)}
+        pendingClientsCount={pendingClientsCount}
       />
 
       {/* Main Page View Container */}
@@ -372,7 +407,22 @@ export function App() {
         onClose={() => setIsManageClientsModalOpen(false)}
         onClientDeleted={() => {
           fetchData();
+          checkPendingClients();
           showToast('Client account permanently deleted.');
+        }}
+        onClientUpdated={() => {
+          fetchData();
+          checkPendingClients();
+        }}
+      />
+
+      {/* Client ₹149 Monthly Membership & UPI Payment Modal */}
+      <MembershipModal
+        isOpen={isMembershipModalOpen}
+        onClose={() => setIsMembershipModalOpen(false)}
+        onSuccess={() => {
+          fetchData();
+          showToast('Payment submitted! Awaiting administrator verification.');
         }}
       />
 

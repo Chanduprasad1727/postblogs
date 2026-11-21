@@ -199,7 +199,18 @@ CREATE POLICY "Admins can upload blog media"
 ON storage.objects FOR INSERT
 WITH CHECK (bucket_id = 'blog-media' AND public.is_admin());
 
--- Only Admins can delete media
-CREATE POLICY "Admins can delete blog media"
-ON storage.objects FOR DELETE
-USING (bucket_id = 'blog-media' AND public.is_admin());
+-- ============================================================
+-- MONTHLY MEMBERSHIP PLAN (₹149 / MONTH) EXTENSION
+-- Payee UPI ID: 9704875593@slc
+-- ============================================================
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS membership_status TEXT DEFAULT 'unpaid' CHECK (membership_status IN ('unpaid', 'pending', 'active', 'expired'));
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS membership_expires_at TIMESTAMP WITH TIME ZONE;
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS last_payment_utr TEXT;
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS last_payment_date TIMESTAMP WITH TIME ZONE;
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS membership_plan TEXT DEFAULT 'monthly_149';
+
+-- Sole Admin is always active
+UPDATE public.profiles 
+SET membership_status = 'active', membership_expires_at = NULL 
+WHERE email = 'pavan@kalagawealth.com';
+

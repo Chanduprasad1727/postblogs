@@ -341,6 +341,18 @@ export const AuthProvider = ({ children }) => {
     return data;
   };
 
+  // REFRESH USER DATA
+  const refreshUser = async () => {
+    const savedToken = token || localStorage.getItem('token');
+    if (!savedToken) return null;
+    const userData = await checkLocalSession(savedToken);
+    if (userData) {
+      setUser(userData);
+      return userData;
+    }
+    return null;
+  };
+
   // LOGOUT METHOD
   const logout = async () => {
     if (isSupabaseConfigured && supabase) {
@@ -370,6 +382,7 @@ export const AuthProvider = ({ children }) => {
       register,
       uploadAvatar,
       updateProfile,
+      refreshUser,
       logout
     }}>
       {children}
