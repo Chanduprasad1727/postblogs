@@ -24,7 +24,8 @@ export const HomePage = ({
   onNavigateToFeed, 
   onNavigateToLogin,
   onOpenPollModal,
-  onToggleFeatured
+  onToggleFeatured,
+  onOpenManageClients
 }) => {
   const { user, isAdmin } = useAuth();
 
@@ -149,11 +150,20 @@ export const HomePage = ({
             </p>
           </div>
 
-          <div className="mt-4 md:mt-0 flex items-center space-x-3">
+          <div className="mt-4 md:mt-0 flex flex-wrap items-center gap-3">
             {isAdmin && (
-              <span className="text-xs bg-amber-100 text-amber-800 font-bold px-3 py-1 rounded-full border border-amber-300">
-                Admin: Click ★ on any card to toggle featured status
-              </span>
+              <>
+                <button
+                  onClick={onOpenManageClients}
+                  className="inline-flex items-center space-x-1.5 text-xs bg-amber-50 hover:bg-amber-100 text-amber-900 font-bold px-3 py-1.5 rounded-xl border border-amber-300 shadow-xs transition active:scale-95"
+                >
+                  <Users className="w-3.5 h-3.5 text-amber-600" />
+                  <span>Manage Clients</span>
+                </button>
+                <span className="text-xs bg-slate-100 text-slate-700 font-medium px-3 py-1 rounded-full border border-slate-200 hidden sm:inline-block">
+                  Admin: Click ★ on cards to toggle featured
+                </span>
+              </>
             )}
             <button
               onClick={onNavigateToFeed}

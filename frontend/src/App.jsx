@@ -9,6 +9,7 @@ import { CreatePostModal } from './components/CreatePostModal';
 import { CreatePollModal } from './components/CreatePollModal';
 import { LoginPage } from './components/LoginPage';
 import { ProfileModal } from './components/ProfileModal';
+import { ManageClientsModal } from './components/ManageClientsModal';
 import { Footer } from './components/Footer';
 import { 
   Sparkles, 
@@ -36,6 +37,7 @@ export function App() {
   const [isCreatePostModalOpen, setIsCreatePostModalOpen] = useState(false);
   const [isCreatePollModalOpen, setIsCreatePollModalOpen] = useState(false);
   const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
+  const [isManageClientsModalOpen, setIsManageClientsModalOpen] = useState(false);
   const [activePollModal, setActivePollModal] = useState(null);
   const [notification, setNotification] = useState('');
 
@@ -194,6 +196,7 @@ export function App() {
         onNavigateToFeed={handleNavigateToFeed}
         onNavigateToLogin={() => setCurrentView('login')}
         onOpenCreatePost={() => setIsCreatePostModalOpen(true)}
+        onOpenManageClients={() => setIsManageClientsModalOpen(true)}
         onOpenProfile={() => setIsProfileModalOpen(true)}
       />
 
@@ -212,6 +215,7 @@ export function App() {
             onNavigateToLogin={() => setCurrentView('login')}
             onOpenPollModal={(poll) => setActivePollModal(poll)}
             onToggleFeatured={handleToggleFeatured}
+            onOpenManageClients={() => setIsManageClientsModalOpen(true)}
           />
         ) : (
           /* SINGLE SCROLL FEED VIEW */
@@ -223,6 +227,7 @@ export function App() {
                 polls={polls}
                 onSelectPoll={(poll) => setActivePollModal(poll)}
                 onOpenCreatePoll={() => setIsCreatePollModalOpen(true)}
+                onOpenManageClients={() => setIsManageClientsModalOpen(true)}
               />
 
               {/* Right Column: Single Continuous Vertical Scroll Feed */}
@@ -359,6 +364,16 @@ export function App() {
       <ProfileModal
         isOpen={isProfileModalOpen}
         onClose={() => setIsProfileModalOpen(false)}
+      />
+
+      {/* Admin Client Management Modal */}
+      <ManageClientsModal
+        isOpen={isManageClientsModalOpen}
+        onClose={() => setIsManageClientsModalOpen(false)}
+        onClientDeleted={() => {
+          fetchData();
+          showToast('Client account permanently deleted.');
+        }}
       />
 
     </div>

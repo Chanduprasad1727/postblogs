@@ -11,7 +11,7 @@ import {
   Clock
 } from 'lucide-react';
 
-export const PollsSidebar = ({ polls, onSelectPoll, onOpenCreatePoll }) => {
+export const PollsSidebar = ({ polls, onSelectPoll, onOpenCreatePoll, onOpenManageClients }) => {
   const { user, isAdmin } = useAuth();
   const [filter, setFilter] = useState('all'); // 'all', 'pending', 'voted'
 
@@ -43,15 +43,28 @@ export const PollsSidebar = ({ polls, onSelectPoll, onOpenCreatePoll }) => {
               </div>
             </div>
 
-            {/* Admin quick add poll */}
-            {isAdmin && onOpenCreatePoll && (
-              <button
-                onClick={onOpenCreatePoll}
-                title="Create a new Poll (Admin)"
-                className="p-1.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white transition active:scale-95"
-              >
-                <Plus className="w-4 h-4" />
-              </button>
+            {/* Admin quick actions: manage clients & add poll */}
+            {isAdmin && (
+              <div className="flex items-center space-x-1.5">
+                {onOpenManageClients && (
+                  <button
+                    onClick={onOpenManageClients}
+                    title="Manage Clients (Admin)"
+                    className="p-1.5 rounded-xl bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-300 shadow-xs transition active:scale-95"
+                  >
+                    <Users className="w-4 h-4 text-amber-600" />
+                  </button>
+                )}
+                {onOpenCreatePoll && (
+                  <button
+                    onClick={onOpenCreatePoll}
+                    title="Create a new Poll (Admin)"
+                    className="p-1.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white transition active:scale-95"
+                  >
+                    <Plus className="w-4 h-4" />
+                  </button>
+                )}
+              </div>
             )}
           </div>
 

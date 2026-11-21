@@ -351,6 +351,142 @@ def update_user_profile(
     return schemas.UserResponse.from_user(current_user)
 
 
+# --- ADMIN CLIENT MANAGEMENT ENDPOINTS (SOLE ADMIN ONLY) ---
+
+@app.get("/api/admin/clients", response_model=List[schemas.ClientResponse])
+def get_admin_clients(
+    current_user: dict = Depends(require_admin)
+):
+    """
+    Returns all registered client accounts with their participation stats.
+    Strictly restricted to Sole Administrator (Kalaga Pavan Kishore).
+    """
+    sb = get_supabase()
+    # Fetch all profiles
+    profiles_res = sb.table("profiles").select("*").order("created_at", desc=True).execute()
+    profiles = profiles_res.data or []
+
+    # Fetch votes count per user
+    votes_res = sb.table("poll_votes").select("user_id").execute()
+    votes_data = votes_res.data or []
+    vote_counts = {}
+    for v in votes_data:
+        uid = str(v.get("user_id"))
+        vote_counts[uid] = vote_counts.get(uid, 0) + 1
+
+    clients = []
+    for p in profiles:
+        email = (p.get("email") or "").lower()
+        role = p.get("role", "client")
+        # Do not include the Sole Administrator in the clients list
+        if email == "pavan@kalagawealth.com" or role == "admin":
+            continue
+
+        p_copy = dict(p)
+        p_copy["votes_count"] = vote_counts.get(str(p["id"]), 0)
+        clients.append(p_copy)
+
+    return clients
+
+
+@app.patch("/api/admin/clients/{client_id}", response_model=schemas.ClientResponse)
+def update_admin_client(
+    client_id: str,
+    update_data: schemas.ClientUpdateRequest,
+    current_user: dict = Depends(require_admin)
+):
+    """
+    Update a client's information (e.g. full_name, avatar_url).
+    Strictly restricted to Sole Administrator.
+    """
+    sb = get_supabase()
+    try:
+        target_res = sb.table("profiles").select("*").eq("id", client_id).execute()
+    except Exception:
+        raise HTTPException(status_code=404, detail="Client not found")
+
+    if not target_res.data:
+        raise HTTPException(status_code=404, detail="Client not found")
+
+    target = target_res.data[0]
+    if target.get("email", "").lower() == "pavan@kalagawealth.com" or target.get("role") == "admin":
+        raise HTTPException(status_code=403, detail="Cannot modify administrator account via client management.")
+
+    updates = {}
+    if update_data.full_name is not None and update_data.full_name.strip():
+        updates["full_name"] = update_data.full_name.strip()
+    if update_data.avatar_url is not None:
+        updates["avatar_url"] = update_data.avatar_url
+
+    if updates:
+        sb.table("profiles").update(updates).eq("id", client_id).execute()
+        try:
+            sb.auth.admin.update_user_by_id(client_id, {"user_metadata": updates})
+        except Exception:
+            pass
+        target.update(updates)
+
+    # Get votes count
+    votes_res = sb.table("poll_votes").select("id").eq("user_id", client_id).execute()
+    target["votes_count"] = len(votes_res.data or [])
+
+    return target
+
+
+@app.delete("/api/admin/clients/{client_id}")
+def delete_admin_client(
+    client_id: str,
+    current_user: dict = Depends(require_admin)
+):
+    """
+    Permanently delete a client account, including their profile, poll votes, and auth record.
+    Strictly restricted to Sole Administrator.
+    """
+    sb = get_supabase()
+    try:
+        target_res = sb.table("profiles").select("*").eq("id", client_id).execute()
+    except Exception:
+        raise HTTPException(status_code=404, detail="Client not found")
+
+    if not target_res.data:
+        raise HTTPException(status_code=404, detail="Client not found")
+
+    target = target_res.data[0]
+    target_email = target.get("email", "").lower()
+    target_name = target.get("full_name", "Client")
+
+    # Guard: Sole Admin can NEVER be deleted
+    if target_email == "pavan@kalagawealth.com" or target.get("role") == "admin":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="The Sole Administrator account (Kalaga Pavan Kishore) cannot be deleted."
+        )
+
+    # 1. Clean up poll votes
+    try:
+        sb.table("poll_votes").delete().eq("user_id", client_id).execute()
+    except Exception as e:
+        print(f"Error deleting poll votes for user {client_id}: {e}")
+
+    # 2. Delete from public.profiles
+    try:
+        sb.table("profiles").delete().eq("id", client_id).execute()
+    except Exception as e:
+        print(f"Error deleting profile for user {client_id}: {e}")
+
+    # 3. Delete from Supabase Auth
+    try:
+        sb.auth.admin.delete_user(client_id)
+    except Exception as e:
+        print(f"Notice: Supabase Auth delete_user for {client_id}: {e}")
+
+    return {
+        "status": "success",
+        "message": f"Client '{target_name}' ({target_email}) has been permanently deleted.",
+        "deleted_id": client_id
+    }
+
+
 # --- POSTS / BLOGS ENDPOINTS (POWERED BY SUPABASE) ---
 
 @app.get("/api/posts", response_model=List[schemas.PostResponse])

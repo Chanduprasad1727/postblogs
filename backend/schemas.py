@@ -1,4 +1,4 @@
-from typing import List, Optional
+from typing import List, Optional, Any, Union
 from datetime import datetime
 from pydantic import BaseModel
 
@@ -110,5 +110,22 @@ class PostResponse(BaseModel):
         from_attributes = True
 
 class ProfileUpdateRequest(BaseModel):
+    full_name: Optional[str] = None
+    avatar_url: Optional[str] = None
+
+# --- Admin Client Management Schemas ---
+class ClientResponse(BaseModel):
+    id: str
+    email: str
+    full_name: str
+    role: str = "client"
+    avatar_url: Optional[str] = None
+    created_at: Optional[Any] = None
+    votes_count: int = 0
+
+    class Config:
+        from_attributes = True
+
+class ClientUpdateRequest(BaseModel):
     full_name: Optional[str] = None
     avatar_url: Optional[str] = None

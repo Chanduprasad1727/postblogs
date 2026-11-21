@@ -7,7 +7,8 @@ import {
   Home,
   Layers,
   Lock,
-  Camera
+  Camera,
+  Users
 } from 'lucide-react';
 
 export const Navbar = ({ 
@@ -16,6 +17,7 @@ export const Navbar = ({
   onNavigateToFeed,
   onNavigateToLogin,
   onOpenCreatePost,
+  onOpenManageClients,
   onOpenProfile
 }) => {
   const { user, isAdmin, logout } = useAuth();
@@ -91,13 +93,24 @@ export const Navbar = ({
           </button>
 
           {isAdmin && (
-            <button
-              onClick={onOpenCreatePost}
-              className="flex items-center space-x-1.5 px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-xs shadow-sm shadow-emerald-600/30 transition hover:shadow-md active:scale-95"
-            >
-              <PlusCircle className="w-4 h-4" />
-              <span>Create Post</span>
-            </button>
+            <>
+              <button
+                onClick={onOpenManageClients}
+                className="flex items-center space-x-1.5 px-3 py-2 rounded-xl bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-300/80 font-bold text-xs shadow-xs transition active:scale-95"
+                title="Manage and View Clients"
+              >
+                <Users className="w-3.5 h-3.5 text-amber-600" />
+                <span className="hidden sm:inline">Clients</span>
+              </button>
+
+              <button
+                onClick={onOpenCreatePost}
+                className="flex items-center space-x-1.5 px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-xs shadow-sm shadow-emerald-600/30 transition hover:shadow-md active:scale-95"
+              >
+                <PlusCircle className="w-4 h-4" />
+                <span>Create Post</span>
+              </button>
+            </>
           )}
 
           {/* User profile / Change DP */}
