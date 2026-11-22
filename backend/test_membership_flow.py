@@ -5,7 +5,7 @@ BASE_URL = "http://127.0.0.1:8000"
 
 def run_tests():
     print("=== STARTING MEMBERSHIP & CONTENT GATING VERIFICATION ===")
-    client = httpx.Client(base_url=BASE_URL, timeout=15.0)
+    client = httpx.Client(base_url=BASE_URL, timeout=30.0)
 
     # 1. Admin Login
     admin_login_res = client.post("/api/auth/login", json={

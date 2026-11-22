@@ -1156,3 +1156,35 @@ def health_check():
         "tables": ["public.profiles", "public.posts", "public.polls", "public.poll_options", "public.poll_votes"],
         "sole_admin": "Kalaga Pavan Kishore (pavan@kalagawealth.com)"
     }
+
+
+# --- FRONTEND SPA STATIC MOUNTING (PRODUCTION & DOCKER DEPLOYMENTS) ---
+FRONTEND_DIST_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "frontend", "dist"))
+
+if os.path.exists(FRONTEND_DIST_DIR):
+    from fastapi.responses import FileResponse
+
+    assets_dir = os.path.join(FRONTEND_DIST_DIR, "assets")
+    if os.path.exists(assets_dir):
+        app.mount("/assets", StaticFiles(directory=assets_dir), name="assets")
+
+    @app.get("/")
+    async def serve_spa_root():
+        index_file = os.path.join(FRONTEND_DIST_DIR, "index.html")
+        if os.path.exists(index_file):
+            return FileResponse(index_file)
+        return {"status": "Kalaga Wealth API operational"}
+
+    @app.get("/{full_path:path}")
+    async def serve_spa_fallback(full_path: str):
+        if full_path.startswith("api/") or full_path.startswith("uploads/"):
+            raise HTTPException(status_code=404, detail="Endpoint not found")
+
+        candidate_file = os.path.join(FRONTEND_DIST_DIR, full_path)
+        if os.path.exists(candidate_file) and os.path.isfile(candidate_file):
+            return FileResponse(candidate_file)
+
+        index_file = os.path.join(FRONTEND_DIST_DIR, "index.html")
+        if os.path.exists(index_file):
+            return FileResponse(index_file)
+        raise HTTPException(status_code=404, detail="Page not found")
