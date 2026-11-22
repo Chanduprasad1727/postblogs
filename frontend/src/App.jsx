@@ -29,17 +29,17 @@ import {
 } from 'lucide-react';
 
 export function App() {
-  const { user, isAdmin, isClient, token, isPasswordRecovery } = useAuth();
+  const { user, isAdmin, isClient, token, isPasswordRecovery, authError } = useAuth();
 
   // Navigation views: 'home' | 'feed' | 'login'
   const [currentView, setCurrentView] = useState('home');
 
-  // If user clicked password reset link in email, automatically open login view for password update
+  // If user clicked password reset link in email or had an expired recovery link, automatically open login view
   useEffect(() => {
-    if (isPasswordRecovery) {
+    if (isPasswordRecovery || authError) {
       setCurrentView('login');
     }
-  }, [isPasswordRecovery]);
+  }, [isPasswordRecovery, authError]);
   const [posts, setPosts] = useState([]);
   const [polls, setPolls] = useState([]);
   const [loading, setLoading] = useState(true);

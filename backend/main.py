@@ -334,19 +334,11 @@ def forgot_password_send_link(req: schemas.ForgotPasswordRequest):
     try:
         sb.auth.reset_password_for_email(clean_email, options={"redirect_to": redirect_to})
     except Exception as e:
-        print(f"Supabase reset_password_for_email note: {e}")
-        try:
-            sb.auth.admin.generate_link({
-                "type": "recovery",
-                "email": clean_email,
-                "options": {"redirect_to": redirect_to}
-            })
-        except Exception as e2:
-            print(f"Supabase generate_link error: {e2}")
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="Unable to send password reset email at this moment. Please try again shortly."
-            )
+        print(f"Supabase reset_password_for_email error: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Unable to send password reset email at this moment. Please check your email address and try again shortly."
+        )
 
     return {
         "status": "success",

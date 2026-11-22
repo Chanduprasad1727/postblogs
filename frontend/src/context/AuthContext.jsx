@@ -7,9 +7,52 @@ export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
   const [token, setToken] = useState(localStorage.getItem('token') || '');
   const [loading, setLoading] = useState(true);
+  const [authError, setAuthError] = useState(null);
   const [isPasswordRecovery, setIsPasswordRecovery] = useState(
     typeof window !== 'undefined' && window.location.hash.includes('type=recovery')
   );
+
+  // Helper to parse recovery tokens or errors from URL hash or query params
+  const checkUrlAuthRedirect = useCallback(() => {
+    if (typeof window === 'undefined') return;
+
+    const hash = window.location.hash || '';
+    const search = window.location.search || '';
+
+    const hashParams = new URLSearchParams(hash.startsWith('#') ? hash.substring(1) : hash);
+    const searchParams = new URLSearchParams(search.startsWith('?') ? search.substring(1) : search);
+
+    const errorCode = hashParams.get('error_code') || searchParams.get('error_code');
+    const errorDesc = hashParams.get('error_description') || searchParams.get('error_description');
+    const error = hashParams.get('error') || searchParams.get('error');
+    const type = hashParams.get('type') || searchParams.get('type');
+    const accessToken = hashParams.get('access_token') || searchParams.get('access_token');
+
+    // Case 1: Error reported by Supabase (e.g. otp_expired)
+    if (errorCode || error) {
+      let friendlyMsg = 'This password reset link has expired or has already been used. Please enter your email below to request a fresh reset link.';
+      if (errorCode === 'otp_expired') {
+        friendlyMsg = 'This password reset link has expired or has already been used. Please enter your email below to request a fresh reset link.';
+      } else if (errorDesc) {
+        friendlyMsg = decodeURIComponent(errorDesc.replace(/\+/g, ' '));
+      }
+      setAuthError(friendlyMsg);
+      setIsPasswordRecovery(false);
+      // Clean ugly error parameters from the address bar
+      window.history.replaceState(null, '', window.location.pathname);
+      return;
+    }
+
+    // Case 2: Recovery session from email link
+    if (type === 'recovery' || hash.includes('type=recovery')) {
+      setIsPasswordRecovery(true);
+      setAuthError(null);
+      if (accessToken) {
+        setToken(accessToken);
+        localStorage.setItem('token', accessToken);
+      }
+    }
+  }, []);
 
   // Helper to build normalized user object from Supabase user & profile
   const buildSupabaseUserData = (sbUser, profile) => {
@@ -121,6 +164,14 @@ export const AuthProvider = ({ children }) => {
   useEffect(() => {
     let isMounted = true;
 
+    // Check URL parameters for recovery state or errors immediately
+    checkUrlAuthRedirect();
+
+    const handleHashChange = () => {
+      if (isMounted) checkUrlAuthRedirect();
+    };
+    window.addEventListener('hashchange', handleHashChange);
+
     const initAuth = async () => {
       const savedToken = localStorage.getItem('token');
 
@@ -172,10 +223,12 @@ export const AuthProvider = ({ children }) => {
         if (!isMounted) return;
         if (event === 'PASSWORD_RECOVERY') {
           setIsPasswordRecovery(true);
+          setAuthError(null);
           if (session?.access_token) {
             setToken(session.access_token);
             localStorage.setItem('token', session.access_token);
           }
+          window.history.replaceState(null, '', window.location.pathname);
         } else if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') {
           if (session) await syncSupabaseSession(session);
         } else if (event === 'SIGNED_OUT') {
@@ -190,9 +243,10 @@ export const AuthProvider = ({ children }) => {
 
     return () => {
       isMounted = false;
+      window.removeEventListener('hashchange', handleHashChange);
       if (subscription) subscription.unsubscribe();
     };
-  }, [syncSupabaseSession]);
+  }, [syncSupabaseSession, checkUrlAuthRedirect]);
 
   // LOGIN METHOD
   const login = async (email, password) => {
@@ -415,45 +469,43 @@ export const AuthProvider = ({ children }) => {
   // FORGOT PASSWORD: Send secure password reset link to user email via Supabase Auth
   const sendPasswordResetEmail = async (email) => {
     const cleanEmail = email.trim().toLowerCase();
-    let directSupabaseSuccess = false;
 
-    // A. Send reset link directly using Supabase client
+    // A. Send reset link directly using Supabase client (Single dispatch to prevent token collisions)
     if (isSupabaseConfigured && supabase) {
       try {
         const { error } = await supabase.auth.resetPasswordForEmail(cleanEmail, {
           redirectTo: `${window.location.origin}/`
         });
         if (!error) {
-          directSupabaseSuccess = true;
-        } else {
-          console.warn('Supabase resetPasswordForEmail direct notice:', error.message);
+          setAuthError(null);
+          return {
+            success: true,
+            email: cleanEmail,
+            message: `A secure password reset link has been sent to ${cleanEmail}. Please check your email inbox and click the link to reset your password.`
+          };
         }
+        console.warn('Supabase resetPasswordForEmail direct notice, trying backend fallback:', error.message);
       } catch (err) {
-        console.warn('Supabase resetPasswordForEmail direct exception:', err);
+        console.warn('Supabase resetPasswordForEmail direct exception, trying backend fallback:', err);
       }
     }
 
-    // B. Call backend forgot-password API
-    try {
-      const res = await fetch('/api/auth/forgot-password', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: cleanEmail, redirect_to: `${window.location.origin}/` })
-      });
-      const data = await res.json();
-      if (!res.ok && !directSupabaseSuccess) {
-        throw new Error(data.detail || 'Failed to send password reset link.');
-      }
-    } catch (err) {
-      if (!directSupabaseSuccess) {
-        throw err;
-      }
+    // B. Call backend forgot-password API only if frontend direct dispatch was not completed
+    const res = await fetch('/api/auth/forgot-password', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: cleanEmail, redirect_to: `${window.location.origin}/` })
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      throw new Error(data.detail || 'Failed to send password reset link. Please verify your email address.');
     }
 
+    setAuthError(null);
     return {
       success: true,
       email: cleanEmail,
-      message: `A secure password reset link has been sent to ${cleanEmail}. Please check your email inbox and click the link to reset your password.`
+      message: data.message || `A secure password reset link has been sent to ${cleanEmail}. Please check your email inbox and click the link to reset your password.`
     };
   };
 
@@ -467,6 +519,7 @@ export const AuthProvider = ({ children }) => {
         });
         if (!error && data?.user) {
           setIsPasswordRecovery(false);
+          setAuthError(null);
           window.history.replaceState(null, '', window.location.pathname);
           return {
             success: true,
@@ -487,7 +540,8 @@ export const AuthProvider = ({ children }) => {
         ...(token ? { Authorization: `Bearer ${token}` } : {})
       },
       body: JSON.stringify({
-        new_password: newPassword
+        new_password: newPassword,
+        access_token: token || undefined
       })
     });
     const data = await res.json();
@@ -496,6 +550,7 @@ export const AuthProvider = ({ children }) => {
     }
 
     setIsPasswordRecovery(false);
+    setAuthError(null);
     window.history.replaceState(null, '', window.location.pathname);
     return {
       success: true,
@@ -516,6 +571,8 @@ export const AuthProvider = ({ children }) => {
       isSupabase: isSupabaseConfigured,
       isPasswordRecovery,
       setIsPasswordRecovery,
+      authError,
+      setAuthError,
       login,
       register,
       uploadAvatar,

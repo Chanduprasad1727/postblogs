@@ -28,7 +28,9 @@ export const LoginPage = ({ onNavigateToFeed, onNavigateToHome }) => {
     isPasswordRecovery,
     setIsPasswordRecovery,
     sendPasswordResetEmail,
-    updateUserPassword 
+    updateUserPassword,
+    authError,
+    setAuthError
   } = useAuth();
 
   const [mode, setMode] = useState('login'); // 'login' | 'register' | 'forgot'
@@ -47,6 +49,23 @@ export const LoginPage = ({ onNavigateToFeed, onNavigateToHome }) => {
   const [successMessage, setSuccessMessage] = useState('');
 
   const handleHomeClick = onNavigateToHome || onNavigateToFeed;
+
+  // React to auth errors from redirect (e.g. expired recovery link)
+  useEffect(() => {
+    if (authError) {
+      setMode('forgot');
+      setError(authError);
+      setSuccessMessage('');
+    }
+  }, [authError]);
+
+  // Clear errors when entering recovery view
+  useEffect(() => {
+    if (isPasswordRecovery) {
+      setError('');
+      setSuccessMessage('');
+    }
+  }, [isPasswordRecovery]);
 
   // Resend link cooldown timer
   useEffect(() => {
@@ -99,6 +118,7 @@ export const LoginPage = ({ onNavigateToFeed, onNavigateToHome }) => {
     }
     setError('');
     setSuccessMessage('');
+    if (setAuthError) setAuthError(null);
     setLoading(true);
     try {
       const res = await sendPasswordResetEmail(cleanEmail);
@@ -126,6 +146,7 @@ export const LoginPage = ({ onNavigateToFeed, onNavigateToHome }) => {
 
     setError('');
     setSuccessMessage('');
+    if (setAuthError) setAuthError(null);
     setLoading(true);
     try {
       const res = await updateUserPassword(newPassword);
@@ -150,6 +171,7 @@ export const LoginPage = ({ onNavigateToFeed, onNavigateToHome }) => {
     setResetLinkSent(false);
     setError('');
     setSuccessMessage('');
+    if (setAuthError) setAuthError(null);
   };
 
   const switchToLogin = () => {
@@ -157,6 +179,7 @@ export const LoginPage = ({ onNavigateToFeed, onNavigateToHome }) => {
     setResetLinkSent(false);
     setError('');
     setSuccessMessage('');
+    if (setAuthError) setAuthError(null);
   };
 
   const switchToRegister = () => {
@@ -164,6 +187,7 @@ export const LoginPage = ({ onNavigateToFeed, onNavigateToHome }) => {
     setResetLinkSent(false);
     setError('');
     setSuccessMessage('');
+    if (setAuthError) setAuthError(null);
   };
 
   return (
