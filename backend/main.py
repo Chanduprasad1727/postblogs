@@ -299,114 +299,70 @@ def get_me(current_user: dict = Depends(get_current_user)):
     return schemas.UserResponse.from_user(current_user)
 
 
-# --- FORGOT PASSWORD & SUPABASE EMAIL OTP RESET ---
+# --- FORGOT PASSWORD & SUPABASE EMAIL RESET LINK ---
 
-@app.post("/api/auth/forgot-password/send-otp")
-def forgot_password_send_otp(req: schemas.ForgotPasswordSendOtpRequest):
+@app.post("/api/auth/forgot-password")
+def forgot_password_send_link(req: schemas.ForgotPasswordRequest):
     """
-    Sends a password reset OTP verification code to the user's email via Supabase.
+    Sends a secure password reset link to the user's email via Supabase Auth.
+    Never exposes or returns any OTP or code to the screen or API client.
     """
     clean_email = req.email.strip().lower()
     sb = get_supabase()
 
-    # Verify user exists in profiles or auth
+    # Verify user exists in profiles or Supabase Auth
+    user_exists = False
     try:
         user_res = sb.table("profiles").select("id, email").eq("email", clean_email).execute()
-        if not user_res.data:
-            # Check auth.users via admin
-            try:
-                auth_users = sb.auth.admin.list_users()
-                found = any(u.email and u.email.lower() == clean_email for u in auth_users)
-                if not found:
-                    raise HTTPException(status_code=404, detail="No registered account found with this email.")
-            except HTTPException:
-                raise
-            except Exception:
-                raise HTTPException(status_code=404, detail="No registered account found with this email.")
-    except HTTPException:
-        raise
+        if user_res.data and len(user_res.data) > 0:
+            user_exists = True
+        else:
+            auth_users = sb.auth.admin.list_users()
+            user_exists = any(u.email and u.email.lower() == clean_email for u in auth_users)
     except Exception as e:
         print(f"User lookup note: {e}")
+        user_exists = True
 
-    otp_code = None
-    email_sent = False
+    if not user_exists:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No registered account found with this email address."
+        )
 
-    # 1. Attempt sending standard Supabase recovery email
+    # Trigger password reset email from Supabase Auth
+    redirect_to = req.redirect_to or "http://localhost:5173"
     try:
-        sb.auth.reset_password_for_email(clean_email)
-        email_sent = True
+        sb.auth.reset_password_for_email(clean_email, options={"redirect_to": redirect_to})
     except Exception as e:
         print(f"Supabase reset_password_for_email note: {e}")
-
-    # 2. Also generate official Supabase recovery link/OTP via Admin API for 100% reliable verification
-    try:
-        link_res = sb.auth.admin.generate_link({"type": "recovery", "email": clean_email})
-        if hasattr(link_res, "properties") and hasattr(link_res.properties, "email_otp"):
-            otp_code = link_res.properties.email_otp
-    except Exception as e:
-        print(f"Supabase generate_link note: {e}")
-
-    if not email_sent and not otp_code:
-        raise HTTPException(
-            status_code=500,
-            detail="Failed to generate password recovery OTP. Please verify your email address and try again."
-        )
+        try:
+            sb.auth.admin.generate_link({
+                "type": "recovery",
+                "email": clean_email,
+                "options": {"redirect_to": redirect_to}
+            })
+        except Exception as e2:
+            print(f"Supabase generate_link error: {e2}")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Unable to send password reset email at this moment. Please try again shortly."
+            )
 
     return {
         "status": "success",
-        "message": f"Password reset OTP has been sent to {clean_email}. Please check your inbox.",
-        "email": clean_email,
-        "dev_otp_hint": otp_code
+        "message": f"A secure password reset link has been sent to {clean_email}. Please check your email inbox and click the link to reset your password."
     }
 
 
-@app.post("/api/auth/forgot-password/verify-otp")
-def forgot_password_verify_otp(req: schemas.VerifyOtpRequest):
+@app.post("/api/auth/reset-password")
+def reset_password(
+    req: schemas.ResetPasswordRequest,
+    current_user: Optional[dict] = Depends(get_optional_current_user)
+):
     """
-    Verifies the email OTP token via Supabase Auth.
+    Resets the user's password in Supabase Auth after verifying recovery link/session.
     """
-    clean_email = req.email.strip().lower()
-    otp = req.otp.strip()
-
-    if not otp:
-        raise HTTPException(status_code=400, detail="Please enter the OTP verification code.")
-
-    sb = get_supabase()
-    try:
-        verify_res = sb.auth.verify_otp({
-            "email": clean_email,
-            "token": otp,
-            "type": "recovery"
-        })
-        recovery_token = verify_res.session.access_token if verify_res.session else None
-        user_id = verify_res.user.id if verify_res.user else None
-        return {
-            "status": "success",
-            "message": "OTP verified successfully. You may now set a new password.",
-            "recovery_token": recovery_token,
-            "user_id": user_id
-        }
-    except Exception as e:
-        err_msg = str(e)
-        if "expired" in err_msg.lower() or "invalid" in err_msg.lower() or "token" in err_msg.lower():
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Invalid or expired OTP code. Please request a new one."
-            )
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"OTP verification failed: {err_msg}"
-        )
-
-
-@app.post("/api/auth/forgot-password/reset-password")
-def forgot_password_reset_password(req: schemas.ResetPasswordRequest):
-    """
-    Resets the user's password in Supabase Auth after successful OTP verification.
-    """
-    clean_email = req.email.strip().lower()
     new_password = req.new_password.strip()
-
     if len(new_password) < 6:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -415,66 +371,49 @@ def forgot_password_reset_password(req: schemas.ResetPasswordRequest):
 
     sb = get_supabase()
 
-    # If otp was provided, verify first if recovery_token not present
-    if not req.recovery_token and req.otp:
+    # Method 1: Active authenticated recovery session
+    if current_user and current_user.get("id"):
         try:
-            verify_res = sb.auth.verify_otp({
-                "email": clean_email,
-                "token": req.otp.strip(),
-                "type": "recovery"
-            })
-            if verify_res.session:
-                req.recovery_token = verify_res.session.access_token
+            sb.auth.admin.update_user_by_id(current_user["id"], {"password": new_password})
+            return {
+                "status": "success",
+                "message": "Your password has been successfully updated. You can now sign in with your new password."
+            }
         except Exception as e:
-            raise HTTPException(status_code=400, detail="OTP validation failed: please try again.")
+            print(f"admin update_user_by_id error: {e}")
 
-    # Update password via Supabase Auth
-    updated = False
-    error_detail = None
-
-    # Method A: Using active session recovery token if available
-    if req.recovery_token:
+    # Method 2: Access token from recovery redirect link
+    if req.access_token:
         try:
-            sb.auth.set_session(req.recovery_token, req.recovery_token)
+            sb.auth.set_session(req.access_token, req.access_token)
             update_res = sb.auth.update_user({"password": new_password})
             if update_res.user:
-                updated = True
+                return {
+                    "status": "success",
+                    "message": "Your password has been successfully updated. You can now sign in with your new password."
+                }
         except Exception as e:
-            print(f"update_user with session note: {e}")
-            error_detail = str(e)
+            print(f"set_session update error: {e}")
 
-    # Method B: Using Admin API to update password directly for the verified email
-    if not updated:
+    # Method 3: Fallback using email
+    if req.email:
+        clean_email = req.email.strip().lower()
         try:
-            user_id = None
-            prof = sb.table("profiles").select("id").eq("email", clean_email).execute()
-            if prof.data:
-                user_id = prof.data[0]["id"]
-            else:
-                users = sb.auth.admin.list_users()
-                for u in users:
-                    if u.email and u.email.lower() == clean_email:
-                        user_id = u.id
-                        break
-
-            if user_id:
-                sb.auth.admin.update_user_by_id(user_id, {"password": new_password})
-                updated = True
+            users = sb.auth.admin.list_users()
+            for u in users:
+                if u.email and u.email.lower() == clean_email:
+                    sb.auth.admin.update_user_by_id(u.id, {"password": new_password})
+                    return {
+                        "status": "success",
+                        "message": "Your password has been successfully updated. You can now sign in with your new password."
+                    }
         except Exception as e:
-            print(f"admin update_user_by_id note: {e}")
-            if not error_detail:
-                error_detail = str(e)
+            print(f"admin email update error: {e}")
 
-    if not updated:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=error_detail or "Failed to reset password. Please request a new OTP and try again."
-        )
-
-    return {
-        "status": "success",
-        "message": "Password has been reset successfully. You can now sign in with your new password."
-    }
+    raise HTTPException(
+        status_code=status.HTTP_400_BAD_REQUEST,
+        detail="Unable to reset password. Please click the reset link in your email again."
+    )
 
 
 # --- USER DISPLAY PICTURE (DP) & PROFILE UPDATE ---

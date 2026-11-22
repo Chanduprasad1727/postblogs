@@ -37,18 +37,14 @@ class LoginRequest(BaseModel):
     email: str
     password: str
 
-class ForgotPasswordSendOtpRequest(BaseModel):
+class ForgotPasswordRequest(BaseModel):
     email: str
-
-class VerifyOtpRequest(BaseModel):
-    email: str
-    otp: str
+    redirect_to: Optional[str] = None
 
 class ResetPasswordRequest(BaseModel):
-    email: str
     new_password: str
-    otp: Optional[str] = None
-    recovery_token: Optional[str] = None
+    access_token: Optional[str] = None
+    email: Optional[str] = None
 
 class Token(BaseModel):
     access_token: str

@@ -7,6 +7,9 @@ export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
   const [token, setToken] = useState(localStorage.getItem('token') || '');
   const [loading, setLoading] = useState(true);
+  const [isPasswordRecovery, setIsPasswordRecovery] = useState(
+    typeof window !== 'undefined' && window.location.hash.includes('type=recovery')
+  );
 
   // Helper to build normalized user object from Supabase user & profile
   const buildSupabaseUserData = (sbUser, profile) => {
@@ -167,7 +170,13 @@ export const AuthProvider = ({ children }) => {
     if (isSupabaseConfigured && supabase) {
       const { data } = supabase.auth.onAuthStateChange(async (event, session) => {
         if (!isMounted) return;
-        if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') {
+        if (event === 'PASSWORD_RECOVERY') {
+          setIsPasswordRecovery(true);
+          if (session?.access_token) {
+            setToken(session.access_token);
+            localStorage.setItem('token', session.access_token);
+          }
+        } else if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') {
           if (session) await syncSupabaseSession(session);
         } else if (event === 'SIGNED_OUT') {
           setUser(null);
@@ -403,16 +412,17 @@ export const AuthProvider = ({ children }) => {
     setUser(null);
   };
 
-  // FORGOT PASSWORD: 1. Send OTP to email via Supabase Auth
-  const sendPasswordResetOtp = async (email) => {
+  // FORGOT PASSWORD: Send secure password reset link to user email via Supabase Auth
+  const sendPasswordResetEmail = async (email) => {
     const cleanEmail = email.trim().toLowerCase();
     let directSupabaseSuccess = false;
-    let devHint = null;
 
-    // A. Attempt via Supabase JS client
+    // A. Send reset link directly using Supabase client
     if (isSupabaseConfigured && supabase) {
       try {
-        const { error } = await supabase.auth.resetPasswordForEmail(cleanEmail);
+        const { error } = await supabase.auth.resetPasswordForEmail(cleanEmail, {
+          redirectTo: `${window.location.origin}/`
+        });
         if (!error) {
           directSupabaseSuccess = true;
         } else {
@@ -423,20 +433,16 @@ export const AuthProvider = ({ children }) => {
       }
     }
 
-    // B. Call backend forgot-password API to ensure OTP generation / delivery
+    // B. Call backend forgot-password API
     try {
-      const res = await fetch('/api/auth/forgot-password/send-otp', {
+      const res = await fetch('/api/auth/forgot-password', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: cleanEmail })
+        body: JSON.stringify({ email: cleanEmail, redirect_to: `${window.location.origin}/` })
       });
       const data = await res.json();
-      if (!res.ok) {
-        if (!directSupabaseSuccess) {
-          throw new Error(data.detail || 'Failed to send OTP code.');
-        }
-      } else {
-        devHint = data.dev_otp_hint || null;
+      if (!res.ok && !directSupabaseSuccess) {
+        throw new Error(data.detail || 'Failed to send password reset link.');
       }
     } catch (err) {
       if (!directSupabaseSuccess) {
@@ -447,94 +453,53 @@ export const AuthProvider = ({ children }) => {
     return {
       success: true,
       email: cleanEmail,
-      devOtpHint: devHint,
-      message: `Verification code sent to ${cleanEmail}. Please check your email inbox.`
+      message: `A secure password reset link has been sent to ${cleanEmail}. Please check your email inbox and click the link to reset your password.`
     };
   };
 
-  // FORGOT PASSWORD: 2. Verify Email OTP via Supabase Auth
-  const verifyPasswordResetOtp = async (email, otp) => {
-    const cleanEmail = email.trim().toLowerCase();
-    const cleanOtp = otp.trim();
-
-    // A. Attempt via Supabase JS client
-    if (isSupabaseConfigured && supabase) {
-      try {
-        const { data, error } = await supabase.auth.verifyOtp({
-          email: cleanEmail,
-          token: cleanOtp,
-          type: 'recovery'
-        });
-        if (!error && data?.session) {
-          return {
-            success: true,
-            recoveryToken: data.session.access_token,
-            session: data.session
-          };
-        }
-        console.warn('Supabase verifyOtp notice, checking backend:', error?.message);
-      } catch (err) {
-        console.warn('Supabase verifyOtp exception, checking backend:', err);
-      }
-    }
-
-    // B. Backend verification
-    const res = await fetch('/api/auth/forgot-password/verify-otp', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email: cleanEmail, otp: cleanOtp })
-    });
-    const data = await res.json();
-    if (!res.ok) {
-      throw new Error(data.detail || 'Invalid or expired OTP code.');
-    }
-    return {
-      success: true,
-      recoveryToken: data.recovery_token,
-      userId: data.user_id
-    };
-  };
-
-  // FORGOT PASSWORD: 3. Set New Password in Supabase Auth
-  const resetPassword = async (email, newPassword, recoveryToken, otp) => {
-    const cleanEmail = email.trim().toLowerCase();
-
-    // A. If Supabase client has active recovery session
+  // UPDATE PASSWORD: Set new password in Supabase Auth (when user clicks reset link in email)
+  const updateUserPassword = async (newPassword) => {
+    // A. Supabase client update
     if (isSupabaseConfigured && supabase) {
       try {
         const { data, error } = await supabase.auth.updateUser({
           password: newPassword
         });
         if (!error && data?.user) {
+          setIsPasswordRecovery(false);
+          window.history.replaceState(null, '', window.location.pathname);
           return {
             success: true,
-            message: 'Password reset successfully! You can now sign in with your new password.'
+            message: 'Your password has been updated successfully! You can now sign in with your new password.'
           };
         }
-        console.warn('Supabase updateUser notice, falling back to backend:', error?.message);
+        console.warn('Supabase updateUser error, falling back to backend:', error?.message);
       } catch (err) {
         console.warn('Supabase updateUser exception:', err);
       }
     }
 
-    // B. Backend reset
-    const res = await fetch('/api/auth/forgot-password/reset-password', {
+    // B. Backend reset fallback
+    const res = await fetch('/api/auth/reset-password', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token ? { Authorization: `Bearer ${token}` } : {})
+      },
       body: JSON.stringify({
-        email: cleanEmail,
-        new_password: newPassword,
-        recovery_token: recoveryToken,
-        otp
+        new_password: newPassword
       })
     });
     const data = await res.json();
     if (!res.ok) {
-      throw new Error(data.detail || 'Failed to reset password.');
+      throw new Error(data.detail || 'Failed to reset password. Please click the reset link in your email again.');
     }
+
+    setIsPasswordRecovery(false);
+    window.history.replaceState(null, '', window.location.pathname);
     return {
       success: true,
-      message: data.message || 'Password reset successfully! You can now sign in with your new password.'
+      message: data.message || 'Your password has been updated successfully! You can now sign in with your new password.'
     };
   };
 
@@ -549,15 +514,16 @@ export const AuthProvider = ({ children }) => {
       isAdmin,
       isClient,
       isSupabase: isSupabaseConfigured,
+      isPasswordRecovery,
+      setIsPasswordRecovery,
       login,
       register,
       uploadAvatar,
       updateProfile,
       refreshUser,
       logout,
-      sendPasswordResetOtp,
-      verifyPasswordResetOtp,
-      resetPassword
+      sendPasswordResetEmail,
+      updateUserPassword
     }}>
       {children}
     </AuthContext.Provider>
