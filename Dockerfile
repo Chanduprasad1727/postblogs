@@ -3,11 +3,12 @@
 # ----------------------------------------------------
 # Stage 1: Build the Vite / React Frontend
 # ----------------------------------------------------
-FROM node:20-alpine AS frontend-builder
+FROM node:20-slim AS frontend-builder
 WORKDIR /app/frontend
 
 COPY frontend/package*.json ./
-RUN npm ci
+# Install dependencies, ensuring Linux platform native binaries for Rollup are resolved
+RUN npm install
 
 COPY frontend/ ./
 
@@ -17,6 +18,7 @@ ARG VITE_SUPABASE_ANON_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBh
 
 ENV VITE_SUPABASE_URL=$VITE_SUPABASE_URL
 ENV VITE_SUPABASE_ANON_KEY=$VITE_SUPABASE_ANON_KEY
+ENV NODE_OPTIONS="--stack-size=65536"
 
 RUN npm run build
 
