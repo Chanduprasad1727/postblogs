@@ -149,6 +149,17 @@ class ClientUpdateRequest(BaseModel):
     avatar_url: Optional[str] = None
 
 # --- Membership & UPI Payment Schemas ---
+class MembershipSettingsResponse(BaseModel):
+    membership_mode: str = "paid"  # "free" or "paid"
+    membership_fee: int = 149
+    upi_id: str = "9704875593@slc"
+    payee_name: str = "Kalaga Pavan Kishore"
+
+class MembershipSettingsUpdate(BaseModel):
+    membership_mode: Optional[str] = None  # "free" or "paid"
+    membership_fee: Optional[int] = None   # Desired membership price in INR (> 0)
+    upi_id: Optional[str] = None
+
 class MembershipPaymentSubmit(BaseModel):
     utr_number: str
     amount: int = 149

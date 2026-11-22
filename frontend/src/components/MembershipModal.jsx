@@ -18,7 +18,7 @@ import {
 } from 'lucide-react';
 
 export const MembershipModal = ({ isOpen, onClose, onSuccess }) => {
-  const { user, token, refreshUser } = useAuth();
+  const { user, token, refreshUser, isFreeMode, isPaidMode, membershipFee, membershipSettings } = useAuth();
   const [utrNumber, setUtrNumber] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -27,10 +27,10 @@ export const MembershipModal = ({ isOpen, onClose, onSuccess }) => {
 
   if (!isOpen) return null;
 
-  const upiId = '9704875593@slc';
-  const payeeName = 'Kalaga Wealth';
-  const amount = '149';
-  const note = 'Monthly Membership';
+  const upiId = membershipSettings?.upi_id || '9704875593@slc';
+  const payeeName = membershipSettings?.payee_name || 'Kalaga Wealth';
+  const amount = String(membershipFee || 149);
+  const note = `Monthly Membership ₹${amount}`;
 
   // Standard UPI URI
   const upiLink = `upi://pay?pa=${upiId}&pn=${encodeURIComponent(payeeName)}&am=${amount}&cu=INR&tn=${encodeURIComponent(note)}`;
@@ -60,7 +60,7 @@ export const MembershipModal = ({ isOpen, onClose, onSuccess }) => {
         },
         body: JSON.stringify({
           utr_number: cleanUtr,
-          amount: 149,
+          amount: Number(amount),
           upi_id: upiId
         })
       });
@@ -99,6 +99,59 @@ export const MembershipModal = ({ isOpen, onClose, onSuccess }) => {
     }
   };
 
+  if (isFreeMode) {
+    return (
+      <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-950/75 backdrop-blur-sm flex items-center justify-center p-3 sm:p-6 animate-fade-in font-['Plus_Jakarta_Sans',sans-serif]">
+        <div 
+          className="bg-white rounded-3xl max-w-md w-full shadow-2xl border border-slate-200/80 overflow-hidden flex flex-col"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div className="px-6 py-5 bg-gradient-to-r from-slate-950 via-slate-900 to-slate-950 text-white flex items-center justify-between border-b border-slate-800">
+            <div className="flex items-center space-x-3">
+              <div className="w-10 h-10 rounded-2xl bg-gradient-to-tr from-emerald-500 to-teal-500 flex items-center justify-center text-white font-black text-sm shadow-md">
+                <Sparkles className="w-5 h-5 text-white" />
+              </div>
+              <div>
+                <h3 className="text-base sm:text-lg font-extrabold tracking-tight text-white">
+                  Free Investor Access
+                </h3>
+                <p className="text-xs text-emerald-400 font-semibold">
+                  Complimentary Research Access
+                </p>
+              </div>
+            </div>
+            <button
+              onClick={onClose}
+              className="p-2 text-slate-400 hover:text-white rounded-xl hover:bg-slate-800 transition"
+            >
+              <X className="w-5 h-5" />
+            </button>
+          </div>
+
+          <div className="p-6 text-center space-y-4">
+            <div className="w-16 h-16 rounded-full bg-emerald-50 text-emerald-600 flex items-center justify-center mx-auto border border-emerald-200">
+              <CheckCircle2 className="w-8 h-8" />
+            </div>
+            <div className="space-y-1">
+              <h4 className="text-base font-extrabold text-slate-900">
+                Direct Unrestricted Access Active
+              </h4>
+              <p className="text-xs text-slate-600 leading-relaxed max-w-sm mx-auto">
+                Kalaga Wealth platform is currently in Free Access Mode. You have full complimentary access to all market research briefs, financial models, and community polls without any membership fee.
+              </p>
+            </div>
+            <button
+              onClick={onClose}
+              className="w-full py-3 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-extrabold text-xs shadow-md transition active:scale-95"
+            >
+              Continue to Research Feed
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-950/75 backdrop-blur-sm flex items-center justify-center p-3 sm:p-6 animate-fade-in font-['Plus_Jakarta_Sans',sans-serif]">
       <div 
@@ -118,7 +171,7 @@ export const MembershipModal = ({ isOpen, onClose, onSuccess }) => {
                   Kalaga Wealth Membership
                 </h3>
                 <span className="text-[10px] font-bold uppercase tracking-wider bg-amber-400/20 text-amber-300 border border-amber-400/40 px-2 py-0.5 rounded-full">
-                  ₹149 / Month
+                  ₹{amount} / Month
                 </span>
               </div>
               <p className="text-xs text-slate-300">
@@ -179,7 +232,7 @@ export const MembershipModal = ({ isOpen, onClose, onSuccess }) => {
               <div>
                 <p className="font-extrabold text-sm text-red-800">Membership Expired</p>
                 <p className="text-slate-600 mt-0.5">
-                  Your 30-day membership has completed. Please scan and pay ₹149 below to renew your access for the upcoming month.
+                  Your 30-day membership has completed. Please scan and pay ₹{amount} below to renew your access for the upcoming month.
                 </p>
               </div>
             </div>
@@ -212,7 +265,7 @@ export const MembershipModal = ({ isOpen, onClose, onSuccess }) => {
                   includeMargin={false}
                 />
                 <span className="text-[10px] font-black text-slate-900 mt-1 tracking-wider uppercase">
-                  Scan & Pay ₹149
+                  Scan & Pay ₹{amount}
                 </span>
               </div>
 
@@ -223,7 +276,7 @@ export const MembershipModal = ({ isOpen, onClose, onSuccess }) => {
                     Step 1: Scan QR or Transfer via UPI
                   </span>
                   <h4 className="text-xl font-black text-white mt-0.5">
-                    ₹149 <span className="text-xs font-normal text-slate-300">/ monthly membership</span>
+                    ₹{amount} <span className="text-xs font-normal text-slate-300">/ monthly membership</span>
                   </h4>
                 </div>
 
@@ -279,7 +332,7 @@ export const MembershipModal = ({ isOpen, onClose, onSuccess }) => {
                 <span className="text-red-500">*</span>
               </label>
               <p className="text-[11px] text-slate-500 mb-2">
-                After completing the ₹149 payment in your UPI app, copy the 12-digit UTR / UPI Reference No. from the receipt and paste it here for instant verification.
+                After completing the ₹{amount} payment in your UPI app, copy the 12-digit UTR / UPI Reference No. from the receipt and paste it here for instant verification.
               </p>
               
               <div className="relative">
@@ -320,7 +373,7 @@ export const MembershipModal = ({ isOpen, onClose, onSuccess }) => {
                 </>
               ) : (
                 <>
-                  <span>Submit Payment Verification (₹149)</span>
+                  <span>Submit Payment Verification (₹{amount})</span>
                   <ArrowRight className="w-4 h-4" />
                 </>
               )}

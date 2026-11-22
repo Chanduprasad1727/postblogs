@@ -23,7 +23,7 @@ export const Navbar = ({
   onOpenProfile,
   pendingClientsCount = 0
 }) => {
-  const { user, isAdmin, logout } = useAuth();
+  const { user, isAdmin, logout, isFreeMode, isPaidMode, membershipFee } = useAuth();
 
   return (
     <header className="sticky top-0 z-40 bg-white/95 backdrop-blur-md border-b border-slate-200/80 shadow-xs transition-all">
@@ -100,11 +100,11 @@ export const Navbar = ({
               <button
                 onClick={onOpenManageClients}
                 className="flex items-center space-x-1.5 px-3 py-2 rounded-xl bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-300/80 font-bold text-xs shadow-xs transition active:scale-95 relative"
-                title="Manage Clients & ₹149 Memberships"
+                title="Manage Clients & Membership Settings"
               >
                 <Users className="w-3.5 h-3.5 text-amber-600" />
-                <span className="hidden sm:inline">Clients</span>
-                {pendingClientsCount > 0 && (
+                <span className="hidden sm:inline">Clients & Plans</span>
+                {pendingClientsCount > 0 && isPaidMode && (
                   <span className="ml-1 px-1.5 py-0.5 bg-amber-600 text-white rounded-full text-[10px] font-black animate-pulse">
                     {pendingClientsCount}
                   </span>
@@ -121,8 +121,8 @@ export const Navbar = ({
             </>
           )}
 
-          {/* For Client Members: Membership Status Badge / Pay ₹149 */}
-          {user && !isAdmin && (
+          {/* For Client Members: When in Paid Mode, show Status & Renew/Pay Button */}
+          {user && !isAdmin && isPaidMode && (
             <button
               onClick={onOpenMembership}
               className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition active:scale-95 shadow-xs ${
@@ -132,7 +132,7 @@ export const Navbar = ({
                   ? 'bg-amber-50 text-amber-900 border border-amber-300 hover:bg-amber-100 animate-pulse'
                   : 'bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 text-slate-950 font-black shadow-amber-500/20'
               }`}
-              title="Click to view ₹149 membership & renewal details"
+              title={`Click to view ₹${membershipFee} membership & renewal details`}
             >
               <CreditCard className="w-3.5 h-3.5" />
               <span>
@@ -142,9 +142,17 @@ export const Navbar = ({
                     : 'Active Member'
                   : user.membership_status === 'pending'
                   ? 'Pending Approval'
-                  : 'Pay ₹149 to Unlock'}
+                  : `Pay ₹${membershipFee} to Unlock`}
               </span>
             </button>
+          )}
+
+          {/* For Client Members: When in Free Mode, zero payment details shown */}
+          {user && !isAdmin && isFreeMode && (
+            <div className="flex items-center space-x-1 px-2.5 py-1.5 rounded-xl bg-slate-100 text-slate-700 border border-slate-200 text-xs font-semibold">
+              <span className="w-2 h-2 rounded-full bg-emerald-500 inline-block" />
+              <span>Investor Access</span>
+            </div>
           )}
 
           {/* User profile / Change DP */}

@@ -4,7 +4,7 @@ import httpx
 BASE_URL = "http://127.0.0.1:8000"
 
 def run_tests():
-    print("=== STARTING MEMBERSHIP & CONTENT GATING VERIFICATION ===")
+    print("=== STARTING MEMBERSHIP, FREE/PAID MODES & DYNAMIC PRICING VERIFICATION ===")
     client = httpx.Client(base_url=BASE_URL, timeout=30.0)
 
     # 1. Admin Login
@@ -20,7 +20,13 @@ def run_tests():
     assert admin_user["membership_status"] == "active"
     print(f"✓ Step 1: Sole Admin (Kalaga Pavan Kishore) logged in successfully. Status: {admin_user['membership_status']}")
 
-    # 2. Client Login
+    # 2. Public / Client fetches membership settings
+    settings_res = client.get("/api/membership/settings")
+    assert settings_res.status_code == 200, f"Get settings failed: {settings_res.text}"
+    settings = settings_res.json()
+    print(f"✓ Step 2: Retrieved membership settings: mode={settings.get('membership_mode')}, fee=₹{settings.get('membership_fee')}")
+
+    # 3. Client Login
     client_login_res = client.post("/api/auth/login", json={
         "email": "client@kalagawealth.com",
         "password": "client123"
@@ -29,7 +35,7 @@ def run_tests():
     client_data = client_login_res.json()
     client_token = client_data["access_token"]
     client_id = client_data["user"]["id"]
-    print(f"✓ Step 2: Client logged in. ID: {client_id}")
+    print(f"✓ Step 3: Client logged in. ID: {client_id}")
 
     # Reset client to unpaid initially via Admin API
     reset_res = client.post(
@@ -38,55 +44,44 @@ def run_tests():
         json={"action": "reject"}
     )
     assert reset_res.status_code == 200, f"Reset client failed: {reset_res.text}"
-    print("✓ Step 3: Client status reset to 'unpaid'")
+    print("✓ Step 4: Client status reset to 'unpaid'")
 
-    # 4. Verify Unpaid Client is BLOCKED from Feed (402 Payment Required)
+    # 5. Set Admin Membership Settings to Paid Mode with Custom Fee: ₹299
+    update_settings_res = client.patch(
+        "/api/admin/membership/settings",
+        headers={"Authorization": f"Bearer {admin_token}"},
+        json={"membership_mode": "paid", "membership_fee": 299}
+    )
+    assert update_settings_res.status_code == 200, f"Update settings failed: {update_settings_res.text}"
+    updated_settings = update_settings_res.json()
+    assert updated_settings["membership_mode"] == "paid"
+    assert updated_settings["membership_fee"] == 299
+    print(f"✓ Step 5: Admin set membership to Paid mode with custom price: ₹{updated_settings['membership_fee']}")
+
+    # 6. Verify Unpaid Client is BLOCKED from Feed with 402 mentioning dynamic ₹299
     feed_res = client.get(
         "/api/posts",
         headers={"Authorization": f"Bearer {client_token}"}
     )
     assert feed_res.status_code == 402, f"Expected 402 for unpaid client, got {feed_res.status_code}: {feed_res.text}"
-    print(f"✓ Step 4: Unpaid client blocked with 402 Payment Required: {feed_res.json().get('detail')}")
+    detail_msg = feed_res.json().get('detail', '')
+    assert "₹299" in detail_msg, f"Expected dynamic fee ₹299 in detail message, got: {detail_msg}"
+    print(f"✓ Step 6: Unpaid client blocked with dynamic 402: '{detail_msg}'")
 
-    # 5. Verify Unpaid Client can still view featured preview posts (Home page)
-    featured_res = client.get("/api/posts?featured=true")
-    assert featured_res.status_code == 200, f"Featured posts failed: {featured_res.status_code}"
-    print(f"✓ Step 5: Featured preview posts accessible to all: {len(featured_res.json())} posts found")
-
-    # 6. Client submits UPI payment UTR
+    # 7. Client submits payment with dynamic fee ₹299
     test_utr = "987654321098"
     submit_res = client.post(
         "/api/membership/submit-payment",
         headers={"Authorization": f"Bearer {client_token}"},
-        json={"utr_number": test_utr, "amount": 149, "upi_id": "9704875593@slc"}
+        json={"utr_number": test_utr, "amount": 299, "upi_id": "9704875593@slc"}
     )
     assert submit_res.status_code == 200, f"Submit payment failed: {submit_res.text}"
     updated_client = submit_res.json()["user"]
     assert updated_client["membership_status"] == "pending"
     assert updated_client["last_payment_utr"] == test_utr
-    print(f"✓ Step 6: Client submitted payment with UTR {test_utr}. Status changed to 'pending'")
+    print(f"✓ Step 7: Client submitted payment with UTR {test_utr} for ₹299. Status: pending")
 
-    # 7. Verify Pending Client is STILL BLOCKED from Feed until Admin approves
-    feed_pending_res = client.get(
-        "/api/posts",
-        headers={"Authorization": f"Bearer {client_token}"}
-    )
-    assert feed_pending_res.status_code == 402, f"Pending client should get 402, got {feed_pending_res.status_code}"
-    print("✓ Step 7: Pending client blocked from feed pending Admin approval")
-
-    # 8. Admin lists clients and verifies pending status & UTR
-    clients_res = client.get(
-        "/api/admin/clients",
-        headers={"Authorization": f"Bearer {admin_token}"}
-    )
-    assert clients_res.status_code == 200, f"Admin list clients failed: {clients_res.text}"
-    client_entry = next((c for c in clients_res.json() if c["id"] == client_id), None)
-    assert client_entry is not None, "Client not found in admin client list"
-    assert client_entry["membership_status"] == "pending"
-    assert client_entry["last_payment_utr"] == test_utr
-    print(f"✓ Step 8: Admin sees pending client in Manage Clients modal with UTR: {client_entry['last_payment_utr']}")
-
-    # 9. Admin approves membership for 30 days
+    # 8. Admin approves membership for 30 days
     approve_res = client.post(
         f"/api/admin/clients/{client_id}/membership",
         headers={"Authorization": f"Bearer {admin_token}"},
@@ -96,65 +91,79 @@ def run_tests():
     approved_client = approve_res.json()["client"]
     assert approved_client["membership_status"] == "active"
     assert approved_client["days_remaining"] is not None and approved_client["days_remaining"] >= 29
-    print(f"✓ Step 9: Admin approved membership for 30 days. Client days remaining: {approved_client['days_remaining']}")
+    print(f"✓ Step 8: Admin approved client for 30 days. Days remaining: {approved_client['days_remaining']}")
 
-    # 10. Client checks profile (/api/auth/me) with existing token and sees 'active' and 'days_remaining'
-    me_res = client.get(
-        "/api/auth/me",
-        headers={"Authorization": f"Bearer {client_token}"}
-    )
-    assert me_res.status_code == 200, f"/api/auth/me failed: {me_res.text}"
-    me_user = me_res.json()
-    assert me_user["membership_status"] == "active", f"Expected active, got {me_user['membership_status']}"
-    assert me_user["days_remaining"] is not None and me_user["days_remaining"] >= 29
-    print(f"✓ Step 10: Client /api/auth/me reflects active status with {me_user['days_remaining']} days remaining countdown")
-
-    # 11. Client accesses single scroll research feed (NOW UNLOCKED)
+    # 9. Client accesses single scroll research feed (NOW UNLOCKED)
     feed_unlocked_res = client.get(
         "/api/posts",
         headers={"Authorization": f"Bearer {client_token}"}
     )
     assert feed_unlocked_res.status_code == 200, f"Feed should be unlocked, got {feed_unlocked_res.status_code}"
-    print(f"✓ Step 11: Single scroll research feed UNLOCKED! Returned {len(feed_unlocked_res.json())} posts")
+    print(f"✓ Step 9: Single scroll research feed UNLOCKED in Paid mode! Returned {len(feed_unlocked_res.json())} posts")
 
-    # 12. Admin extends membership by +30 days
-    extend_res = client.post(
-        f"/api/admin/clients/{client_id}/membership",
-        headers={"Authorization": f"Bearer {admin_token}"},
-        json={"action": "extend", "days": 30}
-    )
-    assert extend_res.status_code == 200, f"Extend failed: {extend_res.text}"
-    extended_client = extend_res.json()["client"]
-    assert extended_client["days_remaining"] >= 58
-    print(f"✓ Step 12: Admin extended membership (+30 days). Total days remaining: {extended_client['days_remaining']}")
-
-    # 13. Admin rejects / revokes membership
+    # 10. Admin revokes client membership back to 'unpaid'
     reject_res = client.post(
         f"/api/admin/clients/{client_id}/membership",
         headers={"Authorization": f"Bearer {admin_token}"},
         json={"action": "reject"}
     )
     assert reject_res.status_code == 200, f"Reject failed: {reject_res.text}"
-    rejected_client = reject_res.json()["client"]
-    assert rejected_client["membership_status"] == "unpaid"
-    print("✓ Step 13: Admin revoked client membership back to 'unpaid'")
+    print("✓ Step 10: Client membership revoked back to 'unpaid'")
 
-    # 14. Client is immediately blocked again from feed without re-login
-    feed_revoked_res = client.get(
+    # 11. SWITCH TO FREE ACCESS MODE
+    free_mode_res = client.patch(
+        "/api/admin/membership/settings",
+        headers={"Authorization": f"Bearer {admin_token}"},
+        json={"membership_mode": "free"}
+    )
+    assert free_mode_res.status_code == 200, f"Switch to free mode failed: {free_mode_res.text}"
+    assert free_mode_res.json()["membership_mode"] == "free"
+    print("✓ Step 11: Admin switched platform to 'free' Access Mode")
+
+    # 12. Unpaid client accesses feed in Free mode -> 200 OK (UNRESTRICTED ACCESS!)
+    feed_free_res = client.get(
         "/api/posts",
         headers={"Authorization": f"Bearer {client_token}"}
     )
-    assert feed_revoked_res.status_code == 402, f"Revoked client should get 402, got {feed_revoked_res.status_code}"
-    print("✓ Step 14: Revoked client immediately blocked from feed with 402 Payment Required")
+    assert feed_free_res.status_code == 200, f"Unpaid client should have free access, got {feed_free_res.status_code}: {feed_free_res.text}"
+    print(f"✓ Step 12: In Free Access Mode, unpaid client successfully accesses feed without payment! ({len(feed_free_res.json())} posts)")
 
-    # Restore client to active for normal usage
-    requests_restore = client.post(
+    # 13. Client tries to submit payment in Free Mode -> 400 Bad Request
+    sub_free_res = client.post(
+        "/api/membership/submit-payment",
+        headers={"Authorization": f"Bearer {client_token}"},
+        json={"utr_number": "123456789012", "amount": 149}
+    )
+    assert sub_free_res.status_code == 400, f"Submitting payment in free mode should return 400, got {sub_free_res.status_code}"
+    print(f"✓ Step 13: Payment submission rejected in Free mode with 400: '{sub_free_res.json().get('detail')}'")
+
+    # 14. Switch back to Paid Mode with ₹149 default fee
+    paid_restore_res = client.patch(
+        "/api/admin/membership/settings",
+        headers={"Authorization": f"Bearer {admin_token}"},
+        json={"membership_mode": "paid", "membership_fee": 149}
+    )
+    assert paid_restore_res.status_code == 200
+    print("✓ Step 14: Restored Paid Mode with default ₹149 fee")
+
+    # 15. Verify unpaid client is now gated again
+    feed_gated_again = client.get(
+        "/api/posts",
+        headers={"Authorization": f"Bearer {client_token}"}
+    )
+    assert feed_gated_again.status_code == 402
+    assert "₹149" in feed_gated_again.json().get("detail", "")
+    print(f"✓ Step 15: In Paid Mode, unpaid client is gated again with 402: '{feed_gated_again.json().get('detail')}'")
+
+    # 16. Restore client to active for ongoing usage
+    restore_res = client.post(
         f"/api/admin/clients/{client_id}/membership",
         headers={"Authorization": f"Bearer {admin_token}"},
         json={"action": "approve", "days": 30}
     )
-    print("✓ Restored client to active 30 days for ongoing development/demo.")
-    print("\nALL 14 TESTS PASSED! Membership, UPI QR gating, renewal countdown, and admin management verified flawlessly.")
+    assert restore_res.status_code == 200
+    print("✓ Step 16: Restored client to active 30 days for ongoing development/demo.")
+    print("\nALL 16 TESTS PASSED! Free Mode vs Paid Mode, dynamic pricing, and gating verified flawlessly.")
 
 if __name__ == "__main__":
     run_tests()

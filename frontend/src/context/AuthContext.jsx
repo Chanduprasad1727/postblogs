@@ -12,6 +12,47 @@ export const AuthProvider = ({ children }) => {
     typeof window !== 'undefined' && window.location.hash.includes('type=recovery')
   );
 
+  // Platform Membership Settings (Free Access Mode vs Paid Membership Mode)
+  const [membershipSettings, setMembershipSettings] = useState({
+    membership_mode: 'paid', // 'free' or 'paid'
+    membership_fee: 149,
+    upi_id: '9704875593@slc',
+    payee_name: 'Kalaga Pavan Kishore'
+  });
+
+  // Fetch current platform membership settings
+  const fetchMembershipSettings = useCallback(async () => {
+    try {
+      const res = await fetch('/api/membership/settings');
+      if (res.ok) {
+        const data = await res.json();
+        setMembershipSettings(data);
+        return data;
+      }
+    } catch (err) {
+      console.warn('Could not fetch membership settings:', err);
+    }
+    return null;
+  }, []);
+
+  // Admin updates platform membership settings (Free vs Paid, custom price)
+  const updateMembershipSettings = async (updateData) => {
+    const res = await fetch('/api/admin/membership/settings', {
+      method: 'PATCH',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token ? { Authorization: `Bearer ${token}` } : {})
+      },
+      body: JSON.stringify(updateData)
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      throw new Error(data.detail || 'Failed to update membership settings.');
+    }
+    setMembershipSettings(data);
+    return data;
+  };
+
   // Helper to parse recovery tokens or errors from URL hash or query params
   const checkUrlAuthRedirect = useCallback(() => {
     if (typeof window === 'undefined') return;
@@ -166,6 +207,7 @@ export const AuthProvider = ({ children }) => {
 
     // Check URL parameters for recovery state or errors immediately
     checkUrlAuthRedirect();
+    fetchMembershipSettings();
 
     const handleHashChange = () => {
       if (isMounted) checkUrlAuthRedirect();
@@ -561,6 +603,10 @@ export const AuthProvider = ({ children }) => {
   const isAdmin = user?.role === 'admin';
   const isClient = user?.role === 'client';
 
+  const isFreeMode = membershipSettings.membership_mode === 'free';
+  const isPaidMode = membershipSettings.membership_mode === 'paid';
+  const membershipFee = membershipSettings.membership_fee || 149;
+
   return (
     <AuthContext.Provider value={{
       user,
@@ -573,6 +619,12 @@ export const AuthProvider = ({ children }) => {
       setIsPasswordRecovery,
       authError,
       setAuthError,
+      membershipSettings,
+      isFreeMode,
+      isPaidMode,
+      membershipFee,
+      fetchMembershipSettings,
+      updateMembershipSettings,
       login,
       register,
       uploadAvatar,

@@ -680,7 +680,111 @@ def delete_admin_client(
     }
 
 
-# --- MEMBERSHIP & ₹149 UPI PAYMENT ENDPOINTS ---
+# --- MEMBERSHIP CONFIGURATION (FREE vs PAID & DYNAMIC PRICING) ---
+
+MEMBERSHIP_SETTINGS_FILE = os.path.join(os.path.dirname(__file__), "membership_settings.json")
+
+def load_membership_settings() -> dict:
+    default_settings = {
+        "membership_mode": "paid",  # "free" or "paid"
+        "membership_fee": 149,      # Desired fee in INR
+        "upi_id": "9704875593@slc",
+        "payee_name": "Kalaga Pavan Kishore"
+    }
+    # 1. Check local settings file
+    if os.path.exists(MEMBERSHIP_SETTINGS_FILE):
+        try:
+            with open(MEMBERSHIP_SETTINGS_FILE, "r") as f:
+                data = json.load(f)
+                default_settings.update(data)
+                return default_settings
+        except Exception as e:
+            print(f"Error reading membership settings file: {e}")
+
+    # 2. Check Supabase Sole Admin user_metadata
+    try:
+        sb = get_supabase()
+        users = sb.auth.admin.list_users()
+        for u in users:
+            if u.email and u.email.lower() == "pavan@kalagawealth.com":
+                meta = u.user_metadata or {}
+                if "membership_settings" in meta and isinstance(meta["membership_settings"], dict):
+                    default_settings.update(meta["membership_settings"])
+                    save_membership_settings_local(default_settings)
+                    return default_settings
+    except Exception as e:
+        print(f"Error checking Supabase admin settings: {e}")
+
+    return default_settings
+
+def save_membership_settings_local(settings: dict):
+    try:
+        with open(MEMBERSHIP_SETTINGS_FILE, "w") as f:
+            json.dump(settings, f, indent=2)
+    except Exception as e:
+        print(f"Error writing membership settings file: {e}")
+
+
+@app.get("/api/membership/settings", response_model=schemas.MembershipSettingsResponse)
+def get_membership_settings():
+    """
+    Returns platform membership mode ('free' or 'paid'), configured fee, and UPI details.
+    Accessible to all users.
+    """
+    settings = load_membership_settings()
+    return schemas.MembershipSettingsResponse(**settings)
+
+
+@app.patch("/api/admin/membership/settings", response_model=schemas.MembershipSettingsResponse)
+def update_membership_settings(
+    settings_in: schemas.MembershipSettingsUpdate,
+    admin_user: dict = Depends(require_admin)
+):
+    """
+    Sole Administrator updates the platform membership mode and pricing:
+    - Mode: 'free' (all clients get direct free access) or 'paid' (clients pay desired fee)
+    - Fee: Admin's desired membership price in ₹ (e.g. 149, 299, 499)
+    """
+    settings = load_membership_settings()
+
+    if settings_in.membership_mode is not None:
+        clean_mode = settings_in.membership_mode.strip().lower()
+        if clean_mode not in {"free", "paid"}:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid membership mode. Must be 'free' or 'paid'."
+            )
+        settings["membership_mode"] = clean_mode
+
+    if settings_in.membership_fee is not None:
+        if settings_in.membership_fee < 1:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Membership fee must be greater than or equal to ₹1."
+            )
+        settings["membership_fee"] = int(settings_in.membership_fee)
+
+    if settings_in.upi_id is not None and settings_in.upi_id.strip():
+        settings["upi_id"] = settings_in.upi_id.strip()
+
+    save_membership_settings_local(settings)
+
+    # Persist in Supabase Auth user_metadata for Sole Administrator
+    sb = get_supabase()
+    try:
+        admin_id = admin_user.get("id")
+        if admin_id:
+            au = sb.auth.admin.get_user_by_id(admin_id)
+            meta = au.user.user_metadata or {}
+            meta["membership_settings"] = settings
+            sb.auth.admin.update_user_by_id(admin_id, {"user_metadata": meta})
+    except Exception as e:
+        print(f"Error persisting settings to Supabase admin: {e}")
+
+    return schemas.MembershipSettingsResponse(**settings)
+
+
+# --- MEMBERSHIP & UPI PAYMENT ENDPOINTS ---
 
 @app.post("/api/membership/submit-payment")
 def submit_membership_payment(
@@ -688,9 +792,16 @@ def submit_membership_payment(
     current_user: dict = Depends(get_current_user)
 ):
     """
-    Client submits UPI reference / UTR number after paying ₹149 to 9704875593@slc.
+    Client submits UPI reference / UTR number after paying configured fee.
     Sets membership_status to 'pending' for Admin verification.
     """
+    settings = load_membership_settings()
+    if settings.get("membership_mode") == "free":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="The platform is currently operating in Free Access Mode. No payment is required!"
+        )
+
     utr = payment_in.utr_number.strip()
     if not utr or len(utr) < 4:
         raise HTTPException(
@@ -698,6 +809,7 @@ def submit_membership_payment(
             detail="Please provide a valid UPI Reference / UTR Number."
         )
 
+    fee = settings.get("membership_fee", 149)
     sb = get_supabase()
     user_id = current_user["id"]
     now_iso = format_iso_datetime(datetime.now(timezone.utc))
@@ -706,7 +818,7 @@ def submit_membership_payment(
         "membership_status": "pending",
         "last_payment_utr": utr,
         "last_payment_date": now_iso,
-        "membership_plan": "monthly_149"
+        "membership_plan": f"monthly_{fee}"
     }
 
     # 1. Update Supabase Auth user metadata
@@ -727,7 +839,7 @@ def submit_membership_payment(
     current_user.update(updates)
     return {
         "status": "success",
-        "message": f"Payment submitted with UTR: {utr}. Admin Kalaga Pavan Kishore will verify and activate your membership.",
+        "message": f"Payment of ₹{fee} submitted with UTR: {utr}. Admin Kalaga Pavan Kishore will verify and activate your membership.",
         "user": schemas.UserResponse.from_user(current_user)
     }
 
@@ -766,12 +878,15 @@ def manage_client_membership(
     except Exception:
         pass
 
+    settings = load_membership_settings()
+    fee = settings.get("membership_fee", 149)
+
     if action == "approve":
         expires_at = format_iso_datetime(now + timedelta(days=days))
         updates = {
             "membership_status": "active",
             "membership_expires_at": expires_at,
-            "membership_plan": "monthly_149"
+            "membership_plan": f"monthly_{fee}"
         }
         msg = f"Membership activated for {days} days."
     elif action == "extend":
@@ -875,13 +990,15 @@ def get_posts(
             detail="Authentication required: Only logged-in members can access the single scroll feed."
         )
 
-    # ₹149 monthly membership check for client members
-    if current_user.get("role") != "admin":
+    # Membership check for client members when in 'paid' mode
+    settings = load_membership_settings()
+    if settings.get("membership_mode") == "paid" and current_user.get("role") != "admin":
         m_status = current_user.get("membership_status", "unpaid")
         if m_status != "active":
+            fee = settings.get("membership_fee", 149)
             raise HTTPException(
                 status_code=status.HTTP_402_PAYMENT_REQUIRED,
-                detail="Active ₹149 monthly membership required to access the single scroll feed. Please scan the UPI QR code and submit your UTR."
+                detail=f"Active ₹{fee} monthly membership required to access the single scroll feed. Please scan the UPI QR code and submit your UTR."
             )
 
     posts_res = sb.table("posts").select("*, author:profiles(*)").order("created_at", desc=True).execute()
@@ -954,13 +1071,15 @@ def get_post(
         raise HTTPException(status_code=404, detail="Post not found")
 
     post_data = post_res.data
+    settings = load_membership_settings()
     if not post_data.get("is_featured") and (not current_user or current_user.get("role") != "admin"):
         if not current_user:
             raise HTTPException(status_code=401, detail="Authentication required to view this post.")
-        if current_user.get("membership_status") != "active":
+        if settings.get("membership_mode") == "paid" and current_user.get("membership_status") != "active":
+            fee = settings.get("membership_fee", 149)
             raise HTTPException(
                 status_code=status.HTTP_402_PAYMENT_REQUIRED,
-                detail="Active ₹149 monthly membership required to view full research post."
+                detail=f"Active ₹{fee} monthly membership required to view full research post."
             )
 
     poll_res = sb.table("polls").select("*, poll_options(*), poll_votes(*)").eq("post_id", post_id).execute()
@@ -1053,12 +1172,14 @@ def vote_poll(
     vote_in: schemas.VoteRequest,
     current_user: dict = Depends(get_current_user)
 ):
-    # Strict Membership Check: Unpaid, pending, or revoked clients cannot vote
-    if current_user.get("role") != "admin":
+    # Strict Membership Check: Unpaid, pending, or revoked clients cannot vote when in 'paid' mode
+    settings = load_membership_settings()
+    if settings.get("membership_mode") == "paid" and current_user.get("role") != "admin":
         if current_user.get("membership_status") != "active":
+            fee = settings.get("membership_fee", 149)
             raise HTTPException(
                 status_code=status.HTTP_402_PAYMENT_REQUIRED,
-                detail="Active ₹149 monthly membership required to vote in community investor polls. Please complete payment or wait for admin approval."
+                detail=f"Active ₹{fee} monthly membership required to vote in community investor polls. Please complete payment or wait for admin approval."
             )
 
     sb = get_supabase()

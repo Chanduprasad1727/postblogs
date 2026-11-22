@@ -29,7 +29,7 @@ import {
 } from 'lucide-react';
 
 export function App() {
-  const { user, isAdmin, isClient, token, isPasswordRecovery, authError } = useAuth();
+  const { user, isAdmin, isClient, token, isPasswordRecovery, authError, isFreeMode, isPaidMode, membershipFee } = useAuth();
 
   // Navigation views: 'home' | 'feed' | 'login'
   const [currentView, setCurrentView] = useState('home');
@@ -72,7 +72,7 @@ export function App() {
         setPosts(postsData);
       } else if (postsRes.status === 402) {
         setPosts([]);
-        if (currentView === 'feed') {
+        if (currentView === 'feed' && isPaidMode) {
           setIsMembershipModalOpen(true);
         }
       }
@@ -110,25 +110,25 @@ export function App() {
     }
   }, [token, isAdmin]);
 
-  // Protect feed view: only logged-in users with active membership can access the feed
+  // Protect feed view: only logged-in users with active membership can access the feed (in paid mode)
   useEffect(() => {
     if (currentView === 'feed') {
       if (!user) {
         setCurrentView('home');
-      } else if (!isAdmin && user.membership_status !== 'active') {
+      } else if (!isAdmin && isPaidMode && user.membership_status !== 'active') {
         setIsMembershipModalOpen(true);
       }
     }
-  }, [user, currentView, isAdmin]);
+  }, [user, currentView, isAdmin, isPaidMode]);
 
   // Protected navigation handler to feed
   const handleNavigateToFeed = () => {
     if (!user) {
       showToast('Members Only: Please sign in to access the single scroll research feed.');
       setCurrentView('login');
-    } else if (!isAdmin && user.membership_status !== 'active') {
+    } else if (!isAdmin && isPaidMode && user.membership_status !== 'active') {
       setIsMembershipModalOpen(true);
-      showToast('₹149 Monthly Membership required to view the single scroll feed.');
+      showToast(`₹${membershipFee} Monthly Membership required to view the single scroll feed.`);
     } else {
       setCurrentView('feed');
     }
@@ -280,8 +280,8 @@ export function App() {
               {/* Right Column: Single Continuous Vertical Scroll Feed */}
               <main className="flex-1 w-full space-y-6">
 
-                {/* Strict Content Gating for Unpaid, Pending, or Revoked Clients */}
-                {!isAdmin && user?.membership_status !== 'active' ? (
+                {/* Strict Content Gating for Unpaid, Pending, or Revoked Clients (Only in Paid Mode) */}
+                {isPaidMode && !isAdmin && user?.membership_status !== 'active' ? (
                   <div className="bg-white rounded-3xl border border-slate-200/90 p-8 sm:p-12 text-center shadow-md space-y-6">
                     {user?.membership_status === 'pending' ? (
                       <div className="max-w-md mx-auto space-y-4">
@@ -292,13 +292,13 @@ export function App() {
                           Payment Verification in Progress
                         </h3>
                         <p className="text-xs text-slate-600 leading-relaxed">
-                          We received your ₹149 payment verification with UPI Reference / UTR Number:{' '}
+                          We received your ₹{membershipFee} payment verification with UPI Reference / UTR Number:{' '}
                           <strong className="font-mono text-slate-900 bg-amber-50 px-2.5 py-1 rounded-lg border border-amber-200 block mt-1.5 text-sm">
                             {user.last_payment_utr || 'Submitted'}
                           </strong>
                         </p>
                         <div className="p-3.5 bg-amber-50/80 rounded-2xl border border-amber-200 text-xs text-amber-900 font-medium leading-relaxed">
-                          Administrator <strong>Kalaga Pavan Kishore</strong> is verifying your ₹149 transfer to <strong>9704875593@slc</strong>. Once approved, the full single scroll research feed will automatically unlock.
+                          Administrator <strong>Kalaga Pavan Kishore</strong> is verifying your ₹{membershipFee} transfer to <strong>9704875593@slc</strong>. Once approved, the full single scroll research feed will automatically unlock.
                         </div>
                         <div className="flex items-center justify-center space-x-3 pt-2">
                           <button
@@ -332,7 +332,7 @@ export function App() {
                         <div className="p-4 bg-slate-50 rounded-2xl border border-slate-200 text-left space-y-1.5 text-xs text-slate-700">
                           <div className="flex items-center justify-between font-bold text-slate-900">
                             <span>Plan: Monthly Membership</span>
-                            <span className="text-emerald-700 font-extrabold">₹149 / Month</span>
+                            <span className="text-emerald-700 font-extrabold">₹{membershipFee} / Month</span>
                           </div>
                           <p className="text-[11px] text-slate-500">Official UPI ID: 9704875593@slc</p>
                         </div>
@@ -342,15 +342,15 @@ export function App() {
                           className="w-full py-3.5 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 text-slate-950 font-black text-xs shadow-md transition active:scale-95 flex items-center justify-center space-x-2"
                         >
                           <CreditCard className="w-4 h-4" />
-                          <span>Scan UPI QR & Pay ₹149 to Unlock</span>
+                          <span>Scan UPI QR & Pay ₹{membershipFee} to Unlock</span>
                         </button>
                       </div>
                     )}
                   </div>
                 ) : (
                   <>
-                    {/* Active Membership Renewal Reminder Banner for Paid Clients */}
-                    {!isAdmin && user?.membership_status === 'active' && (
+                    {/* Active Membership Renewal Reminder Banner for Paid Clients (Only in Paid Mode) */}
+                    {isPaidMode && !isAdmin && user?.membership_status === 'active' && (
                       <div className="bg-gradient-to-r from-slate-950 via-slate-900 to-slate-950 text-white px-5 py-3 rounded-2xl border border-emerald-500/30 shadow-xs flex flex-col sm:flex-row items-center justify-between gap-2.5">
                         <div className="flex items-center space-x-2.5 text-xs">
                           <div className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse" />
@@ -366,7 +366,7 @@ export function App() {
                           onClick={() => setIsMembershipModalOpen(true)}
                           className="text-xs font-bold text-amber-400 hover:text-amber-300 hover:underline flex items-center space-x-1"
                         >
-                          <span>Renew / View Plan (₹149)</span>
+                          <span>Renew / View Plan (₹{membershipFee})</span>
                           <ArrowRight className="w-3.5 h-3.5" />
                         </button>
                       </div>
@@ -524,7 +524,7 @@ export function App() {
         }}
       />
 
-      {/* Client ₹149 Monthly Membership & UPI Payment Modal */}
+      {/* Client Membership & UPI Payment Modal */}
       <MembershipModal
         isOpen={isMembershipModalOpen}
         onClose={() => setIsMembershipModalOpen(false)}

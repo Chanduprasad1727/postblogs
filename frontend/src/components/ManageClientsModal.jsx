@@ -24,11 +24,32 @@ import {
 } from 'lucide-react';
 
 export const ManageClientsModal = ({ isOpen, onClose, onClientDeleted, onClientUpdated }) => {
-  const { token, isAdmin } = useAuth();
+  const { 
+    token, 
+    isAdmin, 
+    membershipSettings, 
+    isFreeMode, 
+    isPaidMode, 
+    membershipFee, 
+    updateMembershipSettings 
+  } = useAuth();
   const [clients, setClients] = useState([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState('all'); // 'all', 'pending', 'active', 'unpaid'
+
+  // Membership Mode & Price Controls
+  const [targetMode, setTargetMode] = useState(membershipSettings?.membership_mode || 'paid');
+  const [targetFee, setTargetFee] = useState(membershipSettings?.membership_fee || 149);
+  const [isSavingSettings, setIsSavingSettings] = useState(false);
+  const [settingsSavedSuccess, setSettingsSavedSuccess] = useState(false);
+
+  useEffect(() => {
+    if (membershipSettings) {
+      setTargetMode(membershipSettings.membership_mode || 'paid');
+      setTargetFee(membershipSettings.membership_fee || 149);
+    }
+  }, [membershipSettings]);
   
   // Edit Name state
   const [editingClientId, setEditingClientId] = useState(null);
@@ -44,6 +65,32 @@ export const ManageClientsModal = ({ isOpen, onClose, onClientDeleted, onClientU
   const [copiedUtrId, setCopiedUtrId] = useState(null);
   const [errorMsg, setErrorMsg] = useState('');
   const [successMsg, setSuccessMsg] = useState('');
+
+  // Handle Save Membership Mode / Desired Price
+  const handleSaveMembershipSettings = async (e) => {
+    e?.preventDefault();
+    setIsSavingSettings(true);
+    setErrorMsg('');
+    setSuccessMsg('');
+    try {
+      await updateMembershipSettings({
+        membership_mode: targetMode,
+        membership_fee: Number(targetFee)
+      });
+      setSettingsSavedSuccess(true);
+      setTimeout(() => setSettingsSavedSuccess(false), 4000);
+      setSuccessMsg(
+        targetMode === 'free'
+          ? 'Free Access Mode enabled! All clients now have direct unrestricted access without payment prompts.'
+          : `Paid Membership Mode active! Membership price set to ₹${targetFee}/month.`
+      );
+      fetchClients();
+    } catch (err) {
+      setErrorMsg(err.message || 'Failed to update membership settings');
+    } finally {
+      setIsSavingSettings(false);
+    }
+  };
 
   // Fetch clients from API
   const fetchClients = async () => {
@@ -256,7 +303,7 @@ export const ManageClientsModal = ({ isOpen, onClose, onClientDeleted, onClientU
                 </span>
               </div>
               <p className="text-xs text-slate-300">
-                Manage registered investors, verify ₹149 UPI payments (9704875593@slc), and activate monthly memberships.
+                Configure Free vs Paid access, set membership pricing, verify UPI payments, and manage investors.
               </p>
             </div>
           </div>
@@ -269,16 +316,127 @@ export const ManageClientsModal = ({ isOpen, onClose, onClientDeleted, onClientU
           </button>
         </div>
 
+        {/* Membership Mode & Pricing Configuration (Sole Admin Only) */}
+        <div className="p-4 sm:p-6 bg-gradient-to-r from-slate-900 via-slate-850 to-slate-900 border-b border-slate-800 text-white space-y-4">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div>
+              <div className="flex items-center space-x-2">
+                <Sparkles className="w-4 h-4 text-amber-400" />
+                <h4 className="text-sm font-extrabold text-white">Platform Access & Membership Mode</h4>
+                <span className={`text-[10px] font-black uppercase px-2.5 py-0.5 rounded-full ${
+                  targetMode === 'free' ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40' : 'bg-amber-500/20 text-amber-300 border border-amber-500/40'
+                }`}>
+                  {targetMode === 'free' ? 'Free Access Mode' : `Paid Mode (₹${targetFee}/mo)`}
+                </span>
+              </div>
+              <p className="text-xs text-slate-400 mt-1">
+                {targetMode === 'free'
+                  ? 'All clients have direct unrestricted access. Payment details, UPI QR codes, and renewal notices are hidden from all clients.'
+                  : `Clients must pay ₹${targetFee} via UPI to unlock research. Active clients see renewal countdowns.`}
+              </p>
+            </div>
+
+            {/* Mode Selector Toggle */}
+            <div className="flex items-center bg-slate-950 p-1 rounded-xl border border-slate-800 shrink-0">
+              <button
+                type="button"
+                onClick={() => setTargetMode('free')}
+                className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition ${
+                  targetMode === 'free'
+                    ? 'bg-emerald-600 text-white shadow-xs'
+                    : 'text-slate-400 hover:text-white'
+                }`}
+              >
+                Free Access
+              </button>
+              <button
+                type="button"
+                onClick={() => setTargetMode('paid')}
+                className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition ${
+                  targetMode === 'paid'
+                    ? 'bg-amber-500 text-slate-950 shadow-xs'
+                    : 'text-slate-400 hover:text-white'
+                }`}
+              >
+                Paid Membership
+              </button>
+            </div>
+          </div>
+
+          {/* Mode-specific Pricing Controls */}
+          {targetMode === 'paid' ? (
+            <div className="p-3.5 bg-slate-950/80 rounded-2xl border border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div className="flex items-center space-x-3">
+                <CreditCard className="w-5 h-5 text-amber-400 shrink-0" />
+                <div>
+                  <label className="text-xs font-bold text-slate-200 block">
+                    Desired Membership Cost (₹ / Month)
+                  </label>
+                  <span className="text-[11px] text-slate-500">
+                    Clients will scan UPI QR and pay this custom amount to unlock
+                  </span>
+                </div>
+              </div>
+
+              <div className="flex items-center space-x-2">
+                <div className="relative w-32">
+                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs font-bold text-slate-400">₹</span>
+                  <input
+                    type="number"
+                    min="1"
+                    step="1"
+                    value={targetFee}
+                    onChange={(e) => setTargetFee(Math.max(1, parseInt(e.target.value) || 1))}
+                    className="w-full pl-7 pr-3 py-1.5 rounded-xl bg-slate-900 border border-slate-700 text-white font-bold text-xs focus:ring-2 focus:ring-amber-500 focus:outline-none"
+                    placeholder="149"
+                  />
+                </div>
+
+                <button
+                  type="button"
+                  disabled={isSavingSettings || (membershipSettings?.membership_mode === targetMode && membershipSettings?.membership_fee === Number(targetFee))}
+                  onClick={handleSaveMembershipSettings}
+                  className="px-4 py-1.5 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-black text-xs transition disabled:opacity-50 flex items-center space-x-1.5 shadow-sm"
+                >
+                  {isSavingSettings ? (
+                    <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                  ) : settingsSavedSuccess ? (
+                    <Check className="w-3.5 h-3.5 text-slate-950" />
+                  ) : (
+                    <CheckCircle2 className="w-3.5 h-3.5" />
+                  )}
+                  <span>{settingsSavedSuccess ? 'Saved!' : 'Save Pricing'}</span>
+                </button>
+              </div>
+            </div>
+          ) : (
+            targetMode !== membershipSettings?.membership_mode && (
+              <div className="flex items-center justify-between p-3 bg-emerald-950/40 border border-emerald-800/60 rounded-xl text-xs text-emerald-300">
+                <span>Free Access Mode selected. Click below to apply.</span>
+                <button
+                  type="button"
+                  disabled={isSavingSettings}
+                  onClick={handleSaveMembershipSettings}
+                  className="px-3 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-bold transition flex items-center space-x-1"
+                >
+                  {isSavingSettings && <RefreshCw className="w-3 h-3 animate-spin" />}
+                  <span>Apply Free Mode</span>
+                </button>
+              </div>
+            )
+          )}
+        </div>
+
         {/* Action & Stats Bar */}
         <div className="p-4 sm:p-6 bg-slate-50 border-b border-slate-200/80 space-y-4">
           
-          {/* Pending Verification Notice Banner */}
-          {pendingCount > 0 && (
+          {/* Pending Verification Notice Banner (Only relevant in Paid Mode) */}
+          {targetMode === 'paid' && pendingCount > 0 && (
             <div className="p-3.5 bg-amber-500/10 border border-amber-400/40 rounded-2xl flex items-center justify-between gap-3 text-amber-900 animate-in fade-in">
               <div className="flex items-center space-x-2.5">
                 <div className="w-2.5 h-2.5 rounded-full bg-amber-500 animate-ping" />
                 <span className="text-xs font-bold">
-                  {pendingCount} client{pendingCount > 1 ? 's are' : ' is'} waiting for ₹149 payment verification!
+                  {pendingCount} client{pendingCount > 1 ? 's are' : ' is'} waiting for ₹{targetFee} payment verification!
                 </span>
               </div>
               <button
@@ -308,8 +466,12 @@ export const ManageClientsModal = ({ isOpen, onClose, onClientDeleted, onClientU
                 <Clock className="w-4 h-4" />
               </div>
               <div>
-                <span className="text-[11px] font-semibold text-slate-500 block">Pending ₹149</span>
-                <span className="text-lg font-black text-amber-700">{pendingCount}</span>
+                <span className="text-[11px] font-semibold text-slate-500 block">
+                  {targetMode === 'paid' ? `Pending (₹${targetFee})` : 'Free Mode'}
+                </span>
+                <span className="text-lg font-black text-amber-700">
+                  {targetMode === 'paid' ? pendingCount : 'Active'}
+                </span>
               </div>
             </div>
 
@@ -318,8 +480,12 @@ export const ManageClientsModal = ({ isOpen, onClose, onClientDeleted, onClientU
                 <CheckCircle2 className="w-4 h-4" />
               </div>
               <div>
-                <span className="text-[11px] font-semibold text-slate-500 block">Active Members</span>
-                <span className="text-lg font-black text-emerald-700">{activeCount}</span>
+                <span className="text-[11px] font-semibold text-slate-500 block">
+                  {targetMode === 'paid' ? 'Active Paid' : 'Free Access'}
+                </span>
+                <span className="text-lg font-black text-emerald-700">
+                  {targetMode === 'paid' ? activeCount : clients.length}
+                </span>
               </div>
             </div>
 
@@ -439,7 +605,9 @@ export const ManageClientsModal = ({ isOpen, onClose, onClientDeleted, onClientU
               <p className="text-xs text-slate-500 max-w-xs mx-auto mt-1">
                 {searchQuery || statusFilter !== 'all'
                   ? 'Try clearing your search or switching to "All" clients filter.'
-                  : 'New investor sign-ups will appear here for review and ₹149 verification.'}
+                  : targetMode === 'free'
+                    ? 'New investor sign-ups will appear here with instant free access.'
+                    : `New investor sign-ups will appear here for review and ₹${targetFee} verification.`}
               </p>
             </div>
           ) : (
@@ -555,10 +723,15 @@ export const ManageClientsModal = ({ isOpen, onClose, onClientDeleted, onClientU
                       
                       {/* Membership Status Pill */}
                       <div>
-                        {isPending ? (
+                        {targetMode === 'free' ? (
+                          <div className="inline-flex items-center space-x-1.5 px-3 py-1 rounded-xl bg-emerald-100 border border-emerald-300 text-emerald-900 text-xs font-bold">
+                            <CheckCircle2 className="w-3.5 h-3.5 text-emerald-700" />
+                            <span>Free Access</span>
+                          </div>
+                        ) : isPending ? (
                           <div className="inline-flex items-center space-x-1.5 px-3 py-1 rounded-xl bg-amber-100 border border-amber-300 text-amber-900 text-xs font-bold">
                             <Clock className="w-3.5 h-3.5 text-amber-700 animate-pulse" />
-                            <span>Pending ₹149</span>
+                            <span>Pending ₹{targetFee}</span>
                           </div>
                         ) : isActive ? (
                           <div className="inline-flex items-center space-x-1.5 px-3 py-1 rounded-xl bg-emerald-100 border border-emerald-300 text-emerald-900 text-xs font-bold">
@@ -657,7 +830,11 @@ export const ManageClientsModal = ({ isOpen, onClose, onClientDeleted, onClientU
 
         {/* Footer */}
         <div className="px-6 py-4 bg-slate-50 border-t border-slate-200 flex items-center justify-between text-xs text-slate-500">
-          <span>Official Payee UPI ID: <strong className="font-mono text-slate-800">9704875593@slc</strong> (₹149 / mo)</span>
+          {targetMode === 'free' ? (
+            <span className="text-emerald-700 font-medium">Platform Mode: <strong>Free Access</strong> (Payment prompts disabled for clients)</span>
+          ) : (
+            <span>Official Payee UPI ID: <strong className="font-mono text-slate-800">9704875593@slc</strong> (₹{targetFee} / mo)</span>
+          )}
           <button
             onClick={onClose}
             className="px-4 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs transition"
@@ -689,7 +866,7 @@ export const ManageClientsModal = ({ isOpen, onClose, onClientDeleted, onClientU
                 <p className="font-bold">This will permanently remove:</p>
                 <ul className="list-disc pl-4 space-y-0.5">
                   <li>Client profile and account login credentials</li>
-                  <li>Their ₹149 membership records and UTR payment references</li>
+                  <li>Their membership records and UTR payment references</li>
                   <li>All {deletingClient.votes_count || 0} poll votes cast by this client</li>
                 </ul>
               </div>

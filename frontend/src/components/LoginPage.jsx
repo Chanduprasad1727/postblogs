@@ -30,7 +30,11 @@ export const LoginPage = ({ onNavigateToFeed, onNavigateToHome }) => {
     sendPasswordResetEmail,
     updateUserPassword,
     authError,
-    setAuthError
+    setAuthError,
+    isFreeMode,
+    isPaidMode,
+    membershipFee,
+    membershipSettings
   } = useAuth();
 
   const [mode, setMode] = useState('login'); // 'login' | 'register' | 'forgot'
@@ -227,15 +231,27 @@ export const LoginPage = ({ onNavigateToFeed, onNavigateToHome }) => {
 
             {/* Platform Highlights */}
             <div className="space-y-3.5 mb-8">
-              <div className="p-3.5 rounded-2xl bg-amber-500/10 border border-amber-500/30 flex items-center space-x-3">
-                <div className="w-8 h-8 rounded-xl bg-amber-500/20 text-amber-300 flex items-center justify-center shrink-0">
-                  <CreditCard className="w-4 h-4" />
+              {isFreeMode ? (
+                <div className="p-3.5 rounded-2xl bg-emerald-500/10 border border-emerald-500/30 flex items-center space-x-3">
+                  <div className="w-8 h-8 rounded-xl bg-emerald-500/20 text-emerald-300 flex items-center justify-center shrink-0">
+                    <Sparkles className="w-4 h-4" />
+                  </div>
+                  <div className="text-xs">
+                    <p className="font-extrabold text-emerald-300">Free Investor Membership</p>
+                    <p className="text-[11px] text-emerald-200/80">Complimentary direct access to all research & community polls</p>
+                  </div>
                 </div>
-                <div className="text-xs">
-                  <p className="font-extrabold text-amber-300">₹149 / Month Membership</p>
-                  <p className="text-[11px] text-amber-200/80">Scan UPI QR to 9704875593@slc for instant approval</p>
+              ) : (
+                <div className="p-3.5 rounded-2xl bg-amber-500/10 border border-amber-500/30 flex items-center space-x-3">
+                  <div className="w-8 h-8 rounded-xl bg-amber-500/20 text-amber-300 flex items-center justify-center shrink-0">
+                    <CreditCard className="w-4 h-4" />
+                  </div>
+                  <div className="text-xs">
+                    <p className="font-extrabold text-amber-300">₹{membershipFee} / Month Membership</p>
+                    <p className="text-[11px] text-amber-200/80">Scan UPI QR to {membershipSettings?.upi_id || '9704875593@slc'} for instant approval</p>
+                  </div>
                 </div>
-              </div>
+              )}
 
               <div className="p-3.5 rounded-2xl bg-slate-900/80 border border-slate-800 flex items-center space-x-3">
                 <div className="w-8 h-8 rounded-xl bg-emerald-500/20 text-emerald-400 flex items-center justify-center shrink-0">
