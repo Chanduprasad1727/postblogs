@@ -403,6 +403,141 @@ export const AuthProvider = ({ children }) => {
     setUser(null);
   };
 
+  // FORGOT PASSWORD: 1. Send OTP to email via Supabase Auth
+  const sendPasswordResetOtp = async (email) => {
+    const cleanEmail = email.trim().toLowerCase();
+    let directSupabaseSuccess = false;
+    let devHint = null;
+
+    // A. Attempt via Supabase JS client
+    if (isSupabaseConfigured && supabase) {
+      try {
+        const { error } = await supabase.auth.resetPasswordForEmail(cleanEmail);
+        if (!error) {
+          directSupabaseSuccess = true;
+        } else {
+          console.warn('Supabase resetPasswordForEmail direct notice:', error.message);
+        }
+      } catch (err) {
+        console.warn('Supabase resetPasswordForEmail direct exception:', err);
+      }
+    }
+
+    // B. Call backend forgot-password API to ensure OTP generation / delivery
+    try {
+      const res = await fetch('/api/auth/forgot-password/send-otp', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: cleanEmail })
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        if (!directSupabaseSuccess) {
+          throw new Error(data.detail || 'Failed to send OTP code.');
+        }
+      } else {
+        devHint = data.dev_otp_hint || null;
+      }
+    } catch (err) {
+      if (!directSupabaseSuccess) {
+        throw err;
+      }
+    }
+
+    return {
+      success: true,
+      email: cleanEmail,
+      devOtpHint: devHint,
+      message: `Verification code sent to ${cleanEmail}. Please check your email inbox.`
+    };
+  };
+
+  // FORGOT PASSWORD: 2. Verify Email OTP via Supabase Auth
+  const verifyPasswordResetOtp = async (email, otp) => {
+    const cleanEmail = email.trim().toLowerCase();
+    const cleanOtp = otp.trim();
+
+    // A. Attempt via Supabase JS client
+    if (isSupabaseConfigured && supabase) {
+      try {
+        const { data, error } = await supabase.auth.verifyOtp({
+          email: cleanEmail,
+          token: cleanOtp,
+          type: 'recovery'
+        });
+        if (!error && data?.session) {
+          return {
+            success: true,
+            recoveryToken: data.session.access_token,
+            session: data.session
+          };
+        }
+        console.warn('Supabase verifyOtp notice, checking backend:', error?.message);
+      } catch (err) {
+        console.warn('Supabase verifyOtp exception, checking backend:', err);
+      }
+    }
+
+    // B. Backend verification
+    const res = await fetch('/api/auth/forgot-password/verify-otp', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: cleanEmail, otp: cleanOtp })
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      throw new Error(data.detail || 'Invalid or expired OTP code.');
+    }
+    return {
+      success: true,
+      recoveryToken: data.recovery_token,
+      userId: data.user_id
+    };
+  };
+
+  // FORGOT PASSWORD: 3. Set New Password in Supabase Auth
+  const resetPassword = async (email, newPassword, recoveryToken, otp) => {
+    const cleanEmail = email.trim().toLowerCase();
+
+    // A. If Supabase client has active recovery session
+    if (isSupabaseConfigured && supabase) {
+      try {
+        const { data, error } = await supabase.auth.updateUser({
+          password: newPassword
+        });
+        if (!error && data?.user) {
+          return {
+            success: true,
+            message: 'Password reset successfully! You can now sign in with your new password.'
+          };
+        }
+        console.warn('Supabase updateUser notice, falling back to backend:', error?.message);
+      } catch (err) {
+        console.warn('Supabase updateUser exception:', err);
+      }
+    }
+
+    // B. Backend reset
+    const res = await fetch('/api/auth/forgot-password/reset-password', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        email: cleanEmail,
+        new_password: newPassword,
+        recovery_token: recoveryToken,
+        otp
+      })
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      throw new Error(data.detail || 'Failed to reset password.');
+    }
+    return {
+      success: true,
+      message: data.message || 'Password reset successfully! You can now sign in with your new password.'
+    };
+  };
+
   const isAdmin = user?.role === 'admin';
   const isClient = user?.role === 'client';
 
@@ -419,7 +554,10 @@ export const AuthProvider = ({ children }) => {
       uploadAvatar,
       updateProfile,
       refreshUser,
-      logout
+      logout,
+      sendPasswordResetOtp,
+      verifyPasswordResetOtp,
+      resetPassword
     }}>
       {children}
     </AuthContext.Provider>

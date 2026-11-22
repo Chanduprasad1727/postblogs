@@ -37,6 +37,19 @@ class LoginRequest(BaseModel):
     email: str
     password: str
 
+class ForgotPasswordSendOtpRequest(BaseModel):
+    email: str
+
+class VerifyOtpRequest(BaseModel):
+    email: str
+    otp: str
+
+class ResetPasswordRequest(BaseModel):
+    email: str
+    new_password: str
+    otp: Optional[str] = None
+    recovery_token: Optional[str] = None
+
 class Token(BaseModel):
     access_token: str
     token_type: str = "bearer"
